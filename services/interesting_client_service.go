@@ -152,7 +152,6 @@ func (s *interestingClientService) Delete(id uint, scopeIDs []uint) error {
 func (s *interestingClientService) List(filter interestingdto.FilterQuery, p utils.PaginationParams, userID uint) ([]models.InterestingClient, int64, error) {
 	return s.repo.List(filter, p, userID)
 }
-
 func (s *interestingClientService) Convert(id uint, scopeIDs []uint, req interestingdto.ConvertRequest, createdByID uint, clientRepo repositories.ClientRepository) (*models.Client, error) {
 	ic, err := s.repo.FindByID(id, scopeIDs)
 	if err != nil {
@@ -170,20 +169,24 @@ func (s *interestingClientService) Convert(id uint, scopeIDs []uint, req interes
 			return nil, errors.New("existing client not found")
 		}
 	} else {
-		// Validate code
-		if req.Code == "" {
-			return nil, errors.New("code is required when creating a new client")
+		// Generate code the same way clientService.Create does — never trust
+		// a frontend-previewed code as final, since preview is a non-mutating
+		// peek and never increments code_sequences.
+		var code string
+		if req.BranchID != nil && *req.BranchID != 0 {
+			// Branch selected → generate + increment sequential code for that branch
+			code = utils.GenerateICCodeForBranch(s.db, *req.BranchID, utils.EntityClient)
+		} else {
+			// Fall back to user's assigned branch
+			code = utils.GenerateCode(s.db, createdByID, utils.EntityClient)
 		}
-		var dup models.Client
-		if s.db.Where("code = ?", req.Code).First(&dup).Error == nil {
-			return nil, errors.New("client code already exists: " + req.Code)
-		}
+
 		dateJoined := utils.NowInPhnomPenh()
 		if ic.DateJoined != nil {
 			dateJoined = ic.DateJoined
 		}
 		newClient := &models.Client{
-			Code:            req.Code,
+			Code:            code,
 			Name:            ic.FullName,
 			DateJoined:      dateJoined,
 			Remark:          ic.Remark,

@@ -28,12 +28,12 @@ func RegisterRoleRoutes(rg *gin.RouterGroup, ctrl *controllers.RoleController, p
 		roles.GET("/:id", middlewares.RequirePermission(userRepo, models.PermRoleView), ctrl.GetByID)
 
 		// Create: Super Admin → is_system=1 | Simple User → is_system=0, own role only
-		roles.POST("", middlewares.RequirePermission(userRepo, models.PermRoleCreate, models.PermConfigManage), ctrl.Create)
+		roles.POST("", middlewares.RequirePermission(userRepo, models.PermRoleCreate), ctrl.Create)
 
 		// Update/Delete: Super Admin can edit/delete any role
 		//               Simple User can only edit/delete roles they created (service enforces this)
-		roles.PUT("/:id", middlewares.RequirePermission(userRepo, models.PermRoleEdit, models.PermConfigManage), ctrl.Update)
-		roles.PUT("/:id/permissions", middlewares.RequirePermission(userRepo, models.PermRoleEdit, models.PermConfigManage), ctrl.AssignPermissions)
-		roles.DELETE("/:id", middlewares.RequirePermission(userRepo, models.PermRoleDelete, models.PermConfigManage), ctrl.Delete)
+		roles.PUT("/:id", middlewares.RequirePermission(userRepo, models.PermRoleEdit), ctrl.Update)
+		roles.PUT("/:id/permissions", middlewares.RequirePermission(userRepo, models.PermRoleEdit), ctrl.AssignPermissions)
+		roles.DELETE("/:id", middlewares.RequirePermission(userRepo, models.PermRoleDelete), ctrl.Delete)
 	}
 }

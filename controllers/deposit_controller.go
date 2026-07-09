@@ -73,7 +73,7 @@ func (ctrl *DepositController) Create(c *gin.Context) {
 	}
 	deposit, err := ctrl.svc.Create(middlewares.GetUserID(c), req)
 	if err != nil {
-		utils.InternalError(c, err)
+		utils.BadRequest(c, err.Error())
 		return
 	}
 	utils.Created(c, "deposit created", deposit)
@@ -114,7 +114,7 @@ func (ctrl *DepositController) Update(c *gin.Context) {
 		utils.BadRequest(c, err.Error())
 		return
 	}
-	deposit, err := ctrl.svc.Update(uint(id), ctrl.scope(c), req)
+	deposit, err := ctrl.svc.Update(uint(id), ctrl.scope(c), req, middlewares.GetUserID(c))
 	if err != nil {
 		utils.BadRequest(c, err.Error())
 		return
@@ -132,7 +132,7 @@ func (ctrl *DepositController) Update(c *gin.Context) {
 // @Router       /deposits/{id} [delete]
 func (ctrl *DepositController) Delete(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err := ctrl.svc.Delete(uint(id), ctrl.scope(c)); err != nil {
+	if err := ctrl.svc.Delete(uint(id), ctrl.scope(c), middlewares.GetUserID(c)); err != nil {
 		utils.BadRequest(c, err.Error())
 		return
 	}

@@ -39,13 +39,13 @@ func (r *userRepository) Create(u *models.User) error {
 
 func (r *userRepository) FindByEmail(email string) (*models.User, error) {
 	var u models.User
-	err := r.db.Preload("Role.Permissions").Where("email = ?", email).First(&u).Error
+	err := r.db.Preload("Role.Permissions").Preload("Branches").Where("email = ?", email).First(&u).Error
 	return &u, err
 }
 
 func (r *userRepository) FindByID(id uint) (*models.User, error) {
 	var u models.User
-	err := r.db.Preload("Role.Permissions").First(&u, id).Error
+	err := r.db.Preload("Role.Permissions").Preload("Branches").First(&u, id).Error
 	return &u, err
 }
 
@@ -57,7 +57,17 @@ func (r *userRepository) Update(u *models.User) error {
 	return r.db.Save(u).Error
 }
 
+// Delete removes a user. GORM's plain Delete on a model that owns a
+// many2many relation (Branches, via user_branches) does NOT clean up the
+// join table on its own — without clearing it first, a deleted user would
+// leave orphaned user_branches rows still referencing that now-deleted
+// user_id.
 func (r *userRepository) Delete(id uint) error {
+	user := &models.User{}
+	user.ID = id
+	if err := r.db.Model(user).Association("Branches").Clear(); err != nil {
+		return err
+	}
 	return r.db.Delete(&models.User{}, id).Error
 }
 
@@ -89,7 +99,7 @@ func (r *userRepository) ListDescendants(parentID uint) ([]models.User, error) {
 		ids = append(ids, r.ID)
 	}
 	var users []models.User
-	err = r.db.Preload("Role").
+	err = r.db.Preload("Role").Preload("Branches").
 		Where("id IN ?", ids).
 		Order("parent_id ASC, created_at ASC").
 		Find(&users).Error

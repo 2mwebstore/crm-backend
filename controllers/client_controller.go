@@ -3,8 +3,6 @@ package controllers
 import (
 	"strconv"
 
-	"github.com/gin-gonic/gin"
-
 	"crm-backend/config"
 	clientdto "crm-backend/dto/client"
 	"crm-backend/middlewares"
@@ -12,16 +10,20 @@ import (
 	"crm-backend/repositories"
 	"crm-backend/services"
 	"crm-backend/utils"
+
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type ClientController struct {
 	svc      services.ClientService
 	userSvc  services.UserService
 	userRepo repositories.UserRepository
+	db       *gorm.DB
 }
 
-func NewClientController(svc services.ClientService, userSvc services.UserService, userRepo repositories.UserRepository) *ClientController {
-	return &ClientController{svc, userSvc, userRepo}
+func NewClientController(svc services.ClientService, userSvc services.UserService, userRepo repositories.UserRepository, db *gorm.DB) *ClientController {
+	return &ClientController{svc, userSvc, userRepo, db}
 }
 
 // canViewPhone returns true if the caller has the phone.view permission (or is super admin).
@@ -293,4 +295,15 @@ func (ctrl *ClientController) NextCode(c *gin.Context) {
 	}
 	suffix := ctrl.svc.PeekNextSuffix(uint(branchID))
 	utils.OK(c, "success", gin.H{"suffix": suffix})
+}
+
+func (ctrl *ClientController) PreviewCode(c *gin.Context) {
+	branchIDStr := c.Query("branch_id")
+	if branchIDStr == "" {
+		utils.BadRequest(c, "branch_id is required")
+		return
+	}
+	id, _ := strconv.ParseUint(branchIDStr, 10, 64)
+	preview := utils.PeekICNextCode(ctrl.db, uint(id), utils.EntityClient)
+	utils.OK(c, "success", gin.H{"code": preview})
 }

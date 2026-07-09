@@ -1,9 +1,13 @@
 package repositories
 
 import (
+	"errors"
+	"fmt"
+
 	"crm-backend/models"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type ProductTypeRepository interface {
@@ -14,12 +18,22 @@ type ProductTypeRepository interface {
 	Update(x *models.ProductType) error
 	Delete(id uint, scopeIDs []uint) error
 	ExistsByName(name string, excludeID uint) bool
+	// TopUpCredit and WithdrawCredit apply an atomic, row-locked balance
+	// change and write a matching BalanceTransaction ledger row in the same
+	// DB transaction (see CompanyBankRepository.applyCashDelta for the same
+	// pattern/rationale).
+	TopUpCredit(id uint, amount float64, remark string, createdByID uint) (*models.ProductType, error)
+	WithdrawCredit(id uint, amount float64, remark string, createdByID uint) (*models.ProductType, error)
 }
 
 type productTypeRepository struct{ db *gorm.DB }
 
 func NewProductTypeRepository(db *gorm.DB) ProductTypeRepository {
 	return &productTypeRepository{db}
+}
+
+func (r *productTypeRepository) preload(q *gorm.DB) *gorm.DB {
+	return q.Preload("Branch").Preload("CreatedBy").Preload("CurrencyType")
 }
 
 func (r *productTypeRepository) Create(x *models.ProductType, createdByID uint) error {
@@ -32,7 +46,7 @@ func (r *productTypeRepository) Create(x *models.ProductType, createdByID uint) 
 // (so callers can't distinguish "doesn't exist" from "not in your scope").
 func (r *productTypeRepository) FindByID(id uint, scopeIDs []uint) (*models.ProductType, error) {
 	var x models.ProductType
-	q := r.db.Preload("Branch").Preload("CreatedBy").Where("id = ?", id)
+	q := r.preload(r.db).Where("id = ?", id)
 	if scopeIDs != nil {
 		if len(scopeIDs) == 0 {
 			return nil, gorm.ErrRecordNotFound
@@ -47,7 +61,7 @@ func (r *productTypeRepository) FindByID(id uint, scopeIDs []uint) (*models.Prod
 
 func (r *productTypeRepository) List(showAll bool) ([]models.ProductType, error) {
 	var items []models.ProductType
-	q := r.db.Preload("Branch").Preload("CreatedBy").Model(&models.ProductType{})
+	q := r.preload(r.db).Model(&models.ProductType{})
 	if !showAll {
 		q = q.Where("is_active = ?", true)
 	}
@@ -57,6 +71,62 @@ func (r *productTypeRepository) List(showAll bool) ([]models.ProductType, error)
 
 func (r *productTypeRepository) Update(x *models.ProductType) error {
 	return r.db.Save(x).Error
+}
+
+// applyCreditDelta mirrors CompanyBankRepository.applyCashDelta: the row is
+// locked with SELECT ... FOR UPDATE for the duration of the transaction, so
+// concurrent top-ups/withdrawals on the same product serialize instead of
+// racing, and the ledger row's old/new amounts always reflect real states.
+func (r *productTypeRepository) applyCreditDelta(id uint, amount float64, txType models.BalanceTxType, remark string, createdByID uint) (*models.ProductType, error) {
+	if amount <= 0 {
+		return nil, errors.New("amount must be positive")
+	}
+	err := r.db.Transaction(func(tx *gorm.DB) error {
+		var pt models.ProductType
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&pt, id).Error; err != nil {
+			return err
+		}
+		oldAmount := pt.Credit
+		var newAmount float64
+		if txType == models.BalanceTxWithdrawal {
+			newAmount = oldAmount - amount
+			if newAmount < 0 {
+				return fmt.Errorf(
+					"insufficient credit balance: this product has %.2f credit but the deposit requires %.2f",
+					oldAmount, amount,
+				)
+			}
+		} else {
+			newAmount = oldAmount + amount
+		}
+		if err := tx.Model(&models.ProductType{}).Where("id = ?", id).UpdateColumn("credit", newAmount).Error; err != nil {
+			return err
+		}
+		entry := &models.BalanceTransaction{
+			EntityType:  models.BalanceEntityProductType,
+			EntityID:    id,
+			Field:       "credit",
+			Type:        txType,
+			OldAmount:   oldAmount,
+			Amount:      amount,
+			NewAmount:   newAmount,
+			Remark:      remark,
+			CreatedByID: createdByID,
+		}
+		return tx.Create(entry).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+	return r.FindByID(id, nil)
+}
+
+func (r *productTypeRepository) TopUpCredit(id uint, amount float64, remark string, createdByID uint) (*models.ProductType, error) {
+	return r.applyCreditDelta(id, amount, models.BalanceTxTopUp, remark, createdByID)
+}
+
+func (r *productTypeRepository) WithdrawCredit(id uint, amount float64, remark string, createdByID uint) (*models.ProductType, error) {
+	return r.applyCreditDelta(id, amount, models.BalanceTxWithdrawal, remark, createdByID)
 }
 
 // Delete removes a product type by ID. If scopeIDs is non-nil, the record
@@ -96,7 +166,7 @@ func (r *productTypeRepository) ListForUser(userID uint, showAll bool, branchID 
 		return []models.ProductType{}, nil
 	}
 	var items []models.ProductType
-	q := r.db.Preload("Branch").Preload("CreatedBy").Model(&models.ProductType{})
+	q := r.preload(r.db).Model(&models.ProductType{})
 	if !isSA {
 		q = q.Where("branch_id IN ?", branchIDs)
 	}

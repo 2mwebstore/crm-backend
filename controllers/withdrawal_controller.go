@@ -73,7 +73,7 @@ func (ctrl *WithdrawalController) Create(c *gin.Context) {
 	}
 	withdrawal, err := ctrl.svc.Create(middlewares.GetUserID(c), req)
 	if err != nil {
-		utils.InternalError(c, err)
+		utils.BadRequest(c, err.Error())
 		return
 	}
 	utils.Created(c, "withdrawal created", withdrawal)
@@ -114,7 +114,7 @@ func (ctrl *WithdrawalController) Update(c *gin.Context) {
 		utils.BadRequest(c, err.Error())
 		return
 	}
-	withdrawal, err := ctrl.svc.Update(uint(id), ctrl.scope(c), req)
+	withdrawal, err := ctrl.svc.Update(uint(id), ctrl.scope(c), req, middlewares.GetUserID(c))
 	if err != nil {
 		utils.BadRequest(c, err.Error())
 		return
@@ -132,7 +132,7 @@ func (ctrl *WithdrawalController) Update(c *gin.Context) {
 // @Router       /withdrawals/{id} [delete]
 func (ctrl *WithdrawalController) Delete(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err := ctrl.svc.Delete(uint(id), ctrl.scope(c)); err != nil {
+	if err := ctrl.svc.Delete(uint(id), ctrl.scope(c), middlewares.GetUserID(c)); err != nil {
 		utils.BadRequest(c, err.Error())
 		return
 	}

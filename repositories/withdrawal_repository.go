@@ -21,6 +21,11 @@ type WithdrawalRepository interface {
 	List(filter transactiondto.FilterQuery, p utils.PaginationParams, userID uint) ([]models.Withdrawal, int64, error)
 	SumDeposits(clientID, clientProductID uint) (float64, error)
 	SumWithdrawals(clientID, clientProductID uint) (float64, error)
+	// ListSinceForBranch returns every withdrawal for a branch with date >=
+	// since (precise timestamp, not just calendar day) — used to show
+	// exactly which withdrawals contributed to a shift's income since it
+	// was opened.
+	ListSinceForBranch(branchID uint, since time.Time) ([]models.Withdrawal, error)
 }
 
 type withdrawalRepository struct{ db *gorm.DB }
@@ -35,6 +40,7 @@ func (r *withdrawalRepository) preload(q *gorm.DB) *gorm.DB {
 		Preload("ClientProduct.ProductType").
 		Preload("ClientBank.BankType").
 		Preload("CompanyBank").
+		Preload("CompanyBank.BankType").
 		Preload("BonusOption").
 		Preload("CreatedBy").
 		Preload("ApprovedBy")
@@ -96,6 +102,7 @@ func (r *withdrawalRepository) List(f transactiondto.FilterQuery, p utils.Pagina
 		Preload("ClientProduct.ProductType").
 		Preload("ClientBank.BankType").
 		Preload("CompanyBank").
+		Preload("CompanyBank.BankType").
 		Preload("BonusOption").
 		Preload("CreatedBy").
 		Preload("ApprovedBy")
@@ -174,6 +181,19 @@ func (r *withdrawalRepository) SumWithdrawals(clientID, clientProductID uint) (f
 	var sum float64
 	err := r.db.Model(&models.Withdrawal{}).Where("client_id = ? AND client_product_id = ?", clientID, clientProductID).Select("COALESCE(SUM(amount), 0)").Scan(&sum).Error
 	return sum, err
+}
+
+// ListSinceForBranch returns every withdrawal for a branch with date >=
+// since (a precise timestamp, not just a calendar day) — used to show
+// exactly which withdrawals happened during an open shift, since the
+// shift's own opening time.
+func (r *withdrawalRepository) ListSinceForBranch(branchID uint, since time.Time) ([]models.Withdrawal, error) {
+	var list []models.Withdrawal
+	err := r.preload(r.db).
+		Where("withdrawals.branch_id = ? AND withdrawals.date >= ?", branchID, since).
+		Order("withdrawals.date ASC").
+		Find(&list).Error
+	return list, err
 }
 
 func (r *withdrawalRepository) resolveUserBranches(userID uint) ([]uint, bool) {

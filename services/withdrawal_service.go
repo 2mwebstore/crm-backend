@@ -15,23 +15,59 @@ import (
 type WithdrawalService interface {
 	Create(createdByID uint, req transactiondto.CreateRequest) (*models.Withdrawal, error)
 	GetByID(id uint, scopeIDs []uint) (*models.Withdrawal, error)
-	Update(id uint, scopeIDs []uint, req transactiondto.UpdateRequest) (*models.Withdrawal, error)
-	Delete(id uint, scopeIDs []uint) error
+	Update(id uint, scopeIDs []uint, req transactiondto.UpdateRequest, updatedByID uint) (*models.Withdrawal, error)
+	Delete(id uint, scopeIDs []uint, deletedByID uint) error
 	List(filter transactiondto.FilterQuery, p utils.PaginationParams, userID uint) ([]models.Withdrawal, int64, error)
 	GetBalance(clientID, clientProductID uint) (*transactiondto.BalanceResponse, error)
 	Approve(id uint, approvedByID uint, req transactiondto.ApproveRequest) (*models.Withdrawal, error)
 }
 
 type withdrawalService struct {
-	repo repositories.WithdrawalRepository
-	db   *gorm.DB
+	repo                  repositories.WithdrawalRepository
+	clientRepo            repositories.ClientRepository
+	companyBankRepo       repositories.CompanyBankRepository
+	productTypeRepo       repositories.ProductTypeRepository
+	dailyStartBalanceRepo repositories.DailyStartBalanceRepository
+	db                    *gorm.DB
 }
 
-func NewWithdrawalService(repo repositories.WithdrawalRepository, db *gorm.DB) WithdrawalService {
-	return &withdrawalService{repo, db}
+func NewWithdrawalService(
+	repo repositories.WithdrawalRepository,
+	clientRepo repositories.ClientRepository,
+	companyBankRepo repositories.CompanyBankRepository,
+	productTypeRepo repositories.ProductTypeRepository,
+	dailyStartBalanceRepo repositories.DailyStartBalanceRepository,
+	db *gorm.DB,
+) WithdrawalService {
+	return &withdrawalService{repo, clientRepo, companyBankRepo, productTypeRepo, dailyStartBalanceRepo, db}
+}
+
+// productTypeIDFor resolves a client_product_id to its parent ProductType ID
+// (the shared product category that actually holds the Credit pool).
+func (s *withdrawalService) productTypeIDFor(clientProductID uint) (uint, error) {
+	cp, err := s.clientRepo.FindProduct(clientProductID)
+	if err != nil {
+		return 0, errors.New("client product not found")
+	}
+	return cp.ProductTypeID, nil
+}
+
+// productCurrency returns the ProductType's own currency code, defaulting
+// to USD if unset. Used to convert a withdrawal amount into the product's
+// own currency when they differ, via utils.ConvertCurrency.
+func (s *withdrawalService) productCurrency(productTypeID uint) string {
+	pt, err := s.productTypeRepo.FindByID(productTypeID, nil)
+	if err != nil || pt.CurrencyType == nil || pt.CurrencyType.Code == "" {
+		return "USD"
+	}
+	return pt.CurrencyType.Code
 }
 
 func (s *withdrawalService) Create(createdByID uint, req transactiondto.CreateRequest) (*models.Withdrawal, error) {
+	if err := requireOpenShift(s.dailyStartBalanceRepo, req.BranchID); err != nil {
+		return nil, err
+	}
+
 	currency := req.Currency
 	if currency == "" {
 		currency = "USD"
@@ -58,13 +94,14 @@ func (s *withdrawalService) Create(createdByID uint, req transactiondto.CreateRe
 	}
 
 	bal := utils.RoundFloat(totalDep-totalWdr-req.Amount-bonusAmount, 2)
-	if req.Bal != 0 {
-		bal = req.Bal
-	}
 	os := utils.RoundFloat(bal-req.TO, 2)
-	if req.OS != 0 {
-		os = req.OS
+
+	productTypeID, err := s.productTypeIDFor(req.ClientProductID)
+	if err != nil {
+		return nil, err
 	}
+	productCurrency := s.productCurrency(productTypeID)
+	creditDelta := utils.ConvertCurrency(req.Amount, currency, productCurrency)
 
 	withdrawal := &models.Withdrawal{
 		TransactionNo:   txNo,
@@ -86,7 +123,34 @@ func (s *withdrawalService) Create(createdByID uint, req transactiondto.CreateRe
 		CreatedByID:     createdByID,
 	}
 
-	if err := s.repo.Create(withdrawal); err != nil {
+	// See depositService.Create for the transaction/nesting rationale — same
+	// pattern here, just the reverse direction:
+	//   Withdrawal = money paid out of the company bank (cash decreases,
+	//   blocked if insufficient) and the product's credit pool is
+	//   replenished (credit increases) since the credit that funded this
+	//   client's balance is being settled/returned.
+	//
+	// TODO(business rule to confirm): same immediate-at-Create caveat as
+	// deposits — a later-rejected withdrawal does not currently reverse
+	// this cash/credit effect. See deposit_service.go's Create for details.
+	err = s.db.Transaction(func(tx *gorm.DB) error {
+		txWithdrawalRepo := repositories.NewWithdrawalRepository(tx)
+		txCompanyBankRepo := repositories.NewCompanyBankRepository(tx)
+		txProductTypeRepo := repositories.NewProductTypeRepository(tx)
+
+		if err := txWithdrawalRepo.Create(withdrawal); err != nil {
+			return err
+		}
+		remark := "Withdrawal " + txNo
+		if _, err := txCompanyBankRepo.WithdrawCash(req.CompanyBankID, req.Amount, remark, createdByID); err != nil {
+			return err
+		}
+		if _, err := txProductTypeRepo.TopUpCredit(productTypeID, creditDelta, remark, createdByID); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
 		return nil, err
 	}
 	return s.repo.FindByIDUnsafe(withdrawal.ID)
@@ -103,11 +167,16 @@ func (s *withdrawalService) GetByID(id uint, scopeIDs []uint) (*models.Withdrawa
 	return w, nil
 }
 
-func (s *withdrawalService) Update(id uint, scopeIDs []uint, req transactiondto.UpdateRequest) (*models.Withdrawal, error) {
+func (s *withdrawalService) Update(id uint, scopeIDs []uint, req transactiondto.UpdateRequest, updatedByID uint) (*models.Withdrawal, error) {
 	w, err := s.repo.FindByID(id, scopeIDs)
 	if err != nil {
 		return nil, errors.New("withdrawal not found")
 	}
+
+	oldAmount := w.Amount
+	oldCompanyBankID := w.CompanyBankID
+	newAmount := oldAmount
+	newCompanyBankID := oldCompanyBankID
 
 	if req.Date != nil {
 		w.Date = req.Date.Time
@@ -116,10 +185,12 @@ func (s *withdrawalService) Update(id uint, scopeIDs []uint, req transactiondto.
 		w.ClientBankID = *req.ClientBankID
 	}
 	if req.CompanyBankID != nil {
-		w.CompanyBankID = *req.CompanyBankID
+		newCompanyBankID = *req.CompanyBankID
+		w.CompanyBankID = newCompanyBankID
 	}
 	if req.Amount != nil {
-		w.Amount = *req.Amount
+		newAmount = *req.Amount
+		w.Amount = newAmount
 	}
 	if req.TO != nil {
 		w.TO = *req.TO
@@ -157,17 +228,75 @@ func (s *withdrawalService) Update(id uint, scopeIDs []uint, req transactiondto.
 		w.OS = *req.OS
 	}
 
-	if err := s.repo.Update(w); err != nil {
+	productTypeID, err := s.productTypeIDFor(w.ClientProductID)
+	if err != nil {
+		return nil, err
+	}
+	productCurrency := s.productCurrency(productTypeID)
+
+	amountChanged := newAmount != oldAmount
+	bankChanged := newCompanyBankID != oldCompanyBankID
+
+	err = s.db.Transaction(func(tx *gorm.DB) error {
+		txWithdrawalRepo := repositories.NewWithdrawalRepository(tx)
+		txCompanyBankRepo := repositories.NewCompanyBankRepository(tx)
+		txProductTypeRepo := repositories.NewProductTypeRepository(tx)
+
+		if amountChanged || bankChanged {
+			// Post a reversal of the OLD effect, then apply the NEW effect
+			// as its own entry — never mutate a past ledger row.
+			remark := "Withdrawal edited " + w.TransactionNo
+			oldCreditDelta := utils.ConvertCurrency(oldAmount, w.Currency, productCurrency)
+			if _, err := txCompanyBankRepo.TopUpCash(oldCompanyBankID, oldAmount, remark+" (reversal)", updatedByID); err != nil {
+				return err
+			}
+			if _, err := txProductTypeRepo.WithdrawCredit(productTypeID, oldCreditDelta, remark+" (reversal)", updatedByID); err != nil {
+				return err
+			}
+
+			newCreditDelta := utils.ConvertCurrency(newAmount, w.Currency, productCurrency)
+			if _, err := txCompanyBankRepo.WithdrawCash(newCompanyBankID, newAmount, remark, updatedByID); err != nil {
+				return err
+			}
+			if _, err := txProductTypeRepo.TopUpCredit(productTypeID, newCreditDelta, remark, updatedByID); err != nil {
+				return err
+			}
+		}
+		return txWithdrawalRepo.Update(w)
+	})
+	if err != nil {
 		return nil, err
 	}
 	return s.repo.FindByIDUnsafe(id)
 }
 
-func (s *withdrawalService) Delete(id uint, scopeIDs []uint) error {
-	if _, err := s.repo.FindByID(id, scopeIDs); err != nil {
+func (s *withdrawalService) Delete(id uint, scopeIDs []uint, deletedByID uint) error {
+	w, err := s.repo.FindByID(id, scopeIDs)
+	if err != nil {
 		return errors.New("withdrawal not found")
 	}
-	return s.repo.Delete(id)
+
+	productTypeID, err := s.productTypeIDFor(w.ClientProductID)
+	if err != nil {
+		return err
+	}
+	productCurrency := s.productCurrency(productTypeID)
+	creditDelta := utils.ConvertCurrency(w.Amount, w.Currency, productCurrency)
+
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		txWithdrawalRepo := repositories.NewWithdrawalRepository(tx)
+		txCompanyBankRepo := repositories.NewCompanyBankRepository(tx)
+		txProductTypeRepo := repositories.NewProductTypeRepository(tx)
+
+		remark := "Withdrawal deleted " + w.TransactionNo
+		if _, err := txCompanyBankRepo.TopUpCash(w.CompanyBankID, w.Amount, remark, deletedByID); err != nil {
+			return err
+		}
+		if _, err := txProductTypeRepo.WithdrawCredit(productTypeID, creditDelta, remark, deletedByID); err != nil {
+			return err
+		}
+		return txWithdrawalRepo.Delete(id)
+	})
 }
 
 func (s *withdrawalService) List(filter transactiondto.FilterQuery, p utils.PaginationParams, userID uint) ([]models.Withdrawal, int64, error) {

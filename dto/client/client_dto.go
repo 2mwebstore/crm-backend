@@ -29,7 +29,7 @@ type ProductInput struct {
 }
 
 type CreateClientRequest struct {
-	Code            string          `json:"code" binding:"required,min=1,max=50"`
+	Code            string          `json:"code"` // branch prefix + suffix e.g. CRNS-C000001 (blank = auto-generate)
 	Name            string          `json:"name" binding:"required,min=1,max=191"`
 	DateJoined      *utils.FlexTime `json:"date_joined"`
 	Remark          string          `json:"remark"`

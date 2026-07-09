@@ -40,7 +40,7 @@ type Withdrawal struct {
 	Client        *Client          `gorm:"foreignKey:ClientID" json:"client,omitempty"`
 	ClientProduct *ClientProduct   `gorm:"foreignKey:ClientProductID" json:"client_product,omitempty"`
 	ClientBank    *ClientBank      `gorm:"foreignKey:ClientBankID" json:"client_bank,omitempty"`
-	CompanyBank   *BankType        `gorm:"foreignKey:CompanyBankID" json:"company_bank,omitempty"`
+	CompanyBank   *CompanyBank     `gorm:"foreignKey:CompanyBankID" json:"company_bank,omitempty"`
 	BonusOption   *BonusOptionType `gorm:"foreignKey:BonusOptionID" json:"bonus_option,omitempty"`
 	Branch        *Branch          `gorm:"foreignKey:BranchID" json:"branch,omitempty"`
 	CreatedBy     *User            `gorm:"foreignKey:CreatedByID" json:"created_by,omitempty"`

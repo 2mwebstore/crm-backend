@@ -52,36 +52,15 @@ func (r *branchRepository) Delete(id uint) error {
 //   - Super Admin or SA sub-user: all branches
 //   - Simple User: branches assigned via user_branches (root ancestor's assignments)
 func (r *branchRepository) ListForUser(userID uint, showAll bool) ([]models.Branch, error) {
-	// Walk up to root ancestor
-	rootID := userID
-	for {
-		var parent struct {
-			ParentID     *uint
-			IsSuperAdmin bool
-		}
-		if err := r.db.Raw("SELECT parent_id, is_super_admin FROM users WHERE id = ?", rootID).Scan(&parent).Error; err != nil {
-			break
-		}
-		if parent.IsSuperAdmin {
-			// SA or SA sub → return all
-			return r.List(showAll)
-		}
-		if parent.ParentID == nil {
-			break // rootID is the simple user root
-		}
-		rootID = *parent.ParentID
-	}
-
-	// Get branch IDs assigned to root
-	var branchIDs []uint
-	r.db.Raw("SELECT branch_id FROM user_branches WHERE user_id = ?", rootID).Scan(&branchIDs)
-
-	if len(branchIDs) == 0 {
+	branchIDs, isSA := r.resolveUserBranches(userID)
+	if !isSA && len(branchIDs) == 0 {
 		return []models.Branch{}, nil
 	}
-
 	var items []models.Branch
-	q := r.db.Preload("CreatedBy").Where("id IN ?", branchIDs)
+	q := r.db.Preload("CreatedBy").Model(&models.Branch{})
+	if !isSA {
+		q = q.Where("id IN ?", branchIDs)
+	}
 	if !showAll {
 		q = q.Where("is_active = ?", true)
 	}
@@ -89,6 +68,23 @@ func (r *branchRepository) ListForUser(userID uint, showAll bool) ([]models.Bran
 	return items, err
 }
 
+// branchIDs, isSA := r.resolveUserBranches(userID)
+//
+//	if !isSA && len(branchIDs) == 0 {
+//		return []models.Level{}, nil
+//	}
+//
+// var items []models.Level
+// q := r.db.Preload("Branch").Preload("CreatedBy").Model(&models.Level{})
+//
+//	if !isSA {
+//		q = q.Where("branch_id IN ?", branchIDs)
+//	}
+//
+//	if !showAll {
+//		q = q.Where("is_active = ?", true)
+//	}
+//
 // resolveUserBranches returns the caller's own branch scope.
 // Returns nil = SA (no filter, sees everything even with a parent_id set),
 // []uint = the caller's own directly-assigned branches (may be empty = no
@@ -101,7 +97,9 @@ func (r *branchRepository) resolveUserBranches(userID uint) ([]uint, bool) {
 	if err := r.db.Raw("SELECT is_super_admin FROM users WHERE id = ?", userID).Scan(&row).Error; err != nil {
 		return []uint{}, false
 	}
-	if row.IsSuperAdmin { return nil, true }
+	if row.IsSuperAdmin {
+		return nil, true
+	}
 	var branchIDs []uint
 	r.db.Raw("SELECT branch_id FROM user_branches WHERE user_id = ?", userID).Scan(&branchIDs)
 	return branchIDs, false

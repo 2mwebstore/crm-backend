@@ -19,6 +19,7 @@ func SeedAll(db *gorm.DB) {
 	SeedProductTypes(db)
 	SeedBonusOptions(db)
 	SeedCurrencies(db)
+	SeedCompanyBanks(db) // must run after SeedBankTypes + SeedCurrencies
 }
 
 // ── Super Admin ───────────────────────────────────────────────────────────────
@@ -187,4 +188,76 @@ func SeedCurrencies(db *gorm.DB) {
 		return
 	}
 	log.Println("✅ Currencies seeded")
+}
+
+// ── Company Banks ─────────────────────────────────────────────────────────────
+
+// SeedCompanyBanks inserts a couple of sample company bank accounts.
+// Depends on SeedBankTypes and SeedCurrencies having already run — it looks
+// up the bank/currency rows by their seeded `code` rather than hardcoding
+// IDs, since IDs can shift depending on seed order/history.
+func SeedCompanyBanks(db *gorm.DB) {
+	var count int64
+	db.Model(&models.CompanyBank{}).Count(&count)
+	if count > 0 {
+		return
+	}
+
+	var aba models.BankType
+	if err := db.Where("code = ?", "ABA").First(&aba).Error; err != nil {
+		log.Printf("seeder: company banks skipped — ABA bank type not found (run SeedBankTypes first)")
+		return
+	}
+	var acleda models.BankType
+	hasAcleda := db.Where("code = ?", "ACLEDA").First(&acleda).Error == nil
+
+	var usd, khr models.CurrencyType
+	hasUSD := db.Where("code = ?", "USD").First(&usd).Error == nil
+	hasKHR := db.Where("code = ?", "KHR").First(&khr).Error == nil
+
+	var usdID, khrID *uint
+	if hasUSD {
+		usdID = &usd.ID
+	}
+	if hasKHR {
+		khrID = &khr.ID
+	}
+
+	banks := []models.CompanyBank{
+		{
+			BankTypeID:     aba.ID,
+			AccountNumber:  "000 000 001",
+			AccountName:    "COMPANY NAME LTD",
+			CurrencyTypeID: usdID,
+			IsActive:       true,
+			SortOrder:      1,
+		},
+		{
+			BankTypeID:     aba.ID,
+			AccountNumber:  "000 000 002",
+			AccountName:    "COMPANY NAME LTD",
+			CurrencyTypeID: khrID,
+			IsActive:       true,
+			SortOrder:      2,
+		},
+	}
+	if hasAcleda {
+		banks = append(banks, models.CompanyBank{
+			BankTypeID:     acleda.ID,
+			AccountNumber:  "000 000 003",
+			AccountName:    "COMPANY NAME LTD",
+			CurrencyTypeID: usdID,
+			IsActive:       true,
+			SortOrder:      3,
+		})
+	}
+
+	for i := range banks {
+		banks[i].CreatedByID = 1
+	}
+	if err := db.Create(&banks).Error; err != nil {
+		log.Printf("seeder: company banks: %v", err)
+		return
+	}
+	log.Println("✅ Company Banks seeded")
 }

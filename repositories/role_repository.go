@@ -115,8 +115,8 @@ func (r *roleRepository) SeedSystemRoles(perms []models.Permission) error {
 				models.PermICView, models.PermICCreate, models.PermICEdit, models.PermICDelete, models.PermICConvert, models.PermICExport,
 				models.PermUserView, models.PermUserCreate, models.PermUserEdit,
 				models.PermRoleView,
-				models.PermLookupView,
-				models.PermExchangeView,
+				models.PermLevelView, models.PermContactSourceView, models.PermBankTypeView,
+				models.PermCompanyBankView, models.PermProductTypeView, models.PermBonusOptionView, models.PermCurrencyView,
 				models.PermReportView,
 				models.PermDepositView, models.PermDepositCreate, models.PermDepositEdit,
 				models.PermWithdrawalView, models.PermWithdrawalCreate, models.PermWithdrawalEdit,
@@ -128,8 +128,8 @@ func (r *roleRepository) SeedSystemRoles(perms []models.Permission) error {
 			perms: pick(
 				models.PermClientView, models.PermClientCreate, models.PermClientEdit, models.PermClientExport,
 				models.PermICView, models.PermICCreate, models.PermICEdit, models.PermICConvert, models.PermICExport,
-				models.PermLookupView,
-				models.PermExchangeView,
+				models.PermLevelView, models.PermContactSourceView, models.PermBankTypeView,
+				models.PermCompanyBankView, models.PermProductTypeView, models.PermBonusOptionView, models.PermCurrencyView,
 			),
 		},
 		{
@@ -138,8 +138,8 @@ func (r *roleRepository) SeedSystemRoles(perms []models.Permission) error {
 			perms: pick(
 				models.PermClientView,
 				models.PermICView,
-				models.PermLookupView,
-				models.PermExchangeView,
+				models.PermLevelView, models.PermContactSourceView, models.PermBankTypeView,
+				models.PermCompanyBankView, models.PermProductTypeView, models.PermBonusOptionView, models.PermCurrencyView,
 			),
 		},
 	}

@@ -22,10 +22,6 @@ const (
 	// Phone visibility
 	PermPhoneView = "phone.view"
 
-	// Configuration (system setup — Branches, Lookup tables, Exchange Rates, Roles, Users)
-	PermConfigView   = "configuration.view"
-	PermConfigManage = "configuration.manage" // without this, phone numbers are masked
-
 	// Clients
 	PermClientView   = "clients.view"
 	PermClientCreate = "clients.create"
@@ -53,14 +49,6 @@ const (
 	PermRoleEdit   = "roles.edit"
 	PermRoleDelete = "roles.delete"
 
-	// Lookup
-	PermLookupView   = "lookup.view"
-	PermLookupManage = "lookup.manage"
-
-	// Exchange Rates
-	PermExchangeView   = "exchange_rates.view"
-	PermExchangeManage = "exchange_rates.manage"
-
 	// Reports
 	PermReportView = "reports.view"
 
@@ -75,13 +63,66 @@ const (
 	PermWithdrawalCreate = "withdrawals.create"
 	PermWithdrawalEdit   = "withdrawals.edit"
 	PermWithdrawalDelete = "withdrawals.delete"
+
+	// Company Banks — controls the Top Up / Withdraw balance actions
+	// specifically (moving real cash), kept separate from
+	// configuration.manage/lookup.manage so a role can manage company bank
+	// records (create/edit/delete accounts) without being able to move
+	// money, or vice versa.
+	PermCompanyBankTopup = "company_banks.topup"
+
+	// Product Types — same idea, for the shared credit pool balance.
+	PermProductTypeTopup = "product_types.topup"
+
+	// ── Lookup tables, broken out into full View/Create/Edit/Delete ────────
+	// Each lookup table now has its own dedicated CRUD permissions, instead
+	// of every lookup entity sharing one blanket lookup.view/lookup.manage.
+	// lookup.view/lookup.manage/configuration.view/configuration.manage
+	// still work as broad "grant everything" fallbacks (checked via OR
+	// alongside each specific permission), so existing roles aren't broken
+	// by this change — they just gain the option of finer-grained roles
+	// going forward.
+	PermBankTypeView   = "bank_types.view"
+	PermBankTypeCreate = "bank_types.create"
+	PermBankTypeEdit   = "bank_types.edit"
+	PermBankTypeDelete = "bank_types.delete"
+
+	PermCompanyBankView   = "company_banks.view"
+	PermCompanyBankCreate = "company_banks.create"
+	PermCompanyBankEdit   = "company_banks.edit"
+	PermCompanyBankDelete = "company_banks.delete"
+
+	PermProductTypeView   = "product_types.view"
+	PermProductTypeCreate = "product_types.create"
+	PermProductTypeEdit   = "product_types.edit"
+	PermProductTypeDelete = "product_types.delete"
+
+	PermBonusOptionView   = "bonus_options.view"
+	PermBonusOptionCreate = "bonus_options.create"
+	PermBonusOptionEdit   = "bonus_options.edit"
+	PermBonusOptionDelete = "bonus_options.delete"
+
+	PermLevelView   = "levels.view"
+	PermLevelCreate = "levels.create"
+	PermLevelEdit   = "levels.edit"
+	PermLevelDelete = "levels.delete"
+
+	PermContactSourceView   = "contact_sources.view"
+	PermContactSourceCreate = "contact_sources.create"
+	PermContactSourceEdit   = "contact_sources.edit"
+	PermContactSourceDelete = "contact_sources.delete"
+
+	// Currencies — previously had NO permission model at all (gated only
+	// by superAdminOnly at the frontend router level); now has the same
+	// granular View/Create/Edit/Delete as every other lookup table.
+	PermCurrencyView   = "currencies.view"
+	PermCurrencyCreate = "currencies.create"
+	PermCurrencyEdit   = "currencies.edit"
+	PermCurrencyDelete = "currencies.delete"
 )
 
 // AllPermissions is the master list used for seeding.
 var AllPermissions = []Permission{
-	// Configuration
-	{Name: PermConfigView, DisplayName: "View Configuration", Group: "configuration", Description: "Access settings: branches, lookup tables, exchange rates, roles, users"},
-	{Name: PermConfigManage, DisplayName: "Manage Configuration", Group: "configuration", Description: "Create/edit/delete branches, lookup tables, exchange rates, roles, users"},
 	// Branch
 	{Name: PermBranchView, DisplayName: "View Branches", Group: "branch", Description: "View branch list"},
 	{Name: PermBranchManage, DisplayName: "Manage Branches", Group: "branch", Description: "Create/edit/delete branches"},
@@ -110,12 +151,6 @@ var AllPermissions = []Permission{
 	{Name: PermRoleCreate, DisplayName: "Create Roles", Group: "roles", Description: "Create new roles"},
 	{Name: PermRoleEdit, DisplayName: "Edit Roles", Group: "roles", Description: "Edit existing roles"},
 	{Name: PermRoleDelete, DisplayName: "Delete Roles", Group: "roles", Description: "Delete roles"},
-	// Lookup
-	{Name: PermLookupView, DisplayName: "View Lookup Data", Group: "lookup", Description: "View banks, products, bonus options, currencies"},
-	{Name: PermLookupManage, DisplayName: "Manage Lookup Data", Group: "lookup", Description: "Create/edit/delete lookup tables"},
-	// Exchange Rates
-	{Name: PermExchangeView, DisplayName: "View Exchange Rates", Group: "exchange_rates", Description: "View and convert currency rates"},
-	{Name: PermExchangeManage, DisplayName: "Manage Exchange Rates", Group: "exchange_rates", Description: "Create/edit/delete exchange rates"},
 	// Reports
 	{Name: PermReportView, DisplayName: "View Reports", Group: "reports", Description: "Access dashboard and reports"},
 	// Deposits
@@ -128,6 +163,45 @@ var AllPermissions = []Permission{
 	{Name: PermWithdrawalCreate, DisplayName: "Create Withdrawals", Group: "withdrawals", Description: "Create new withdrawal records"},
 	{Name: PermWithdrawalEdit, DisplayName: "Edit Withdrawals", Group: "withdrawals", Description: "Edit existing withdrawal records"},
 	{Name: PermWithdrawalDelete, DisplayName: "Delete Withdrawals", Group: "withdrawals", Description: "Delete withdrawal records"},
+	// Company Banks (balance control)
+	{Name: PermCompanyBankTopup, DisplayName: "Top Up / Withdraw Company Bank Cash", Group: "company_banks", Description: "Add or remove cash on a company bank account, separate from managing the account record itself"},
+	// Product Types (balance control)
+	{Name: PermProductTypeTopup, DisplayName: "Top Up / Withdraw Product Credit", Group: "product_types", Description: "Add or remove credit on a product type's shared credit pool, separate from managing the product record itself"},
+	// Lookup tables — per-function View/Create/Edit/Delete permissions
+	{Name: PermBankTypeView, DisplayName: "View Bank Types", Group: "bank_types", Description: "View bank type records"},
+	{Name: PermBankTypeCreate, DisplayName: "Create Bank Types", Group: "bank_types", Description: "Create new bank type records"},
+	{Name: PermBankTypeEdit, DisplayName: "Edit Bank Types", Group: "bank_types", Description: "Edit existing bank type records"},
+	{Name: PermBankTypeDelete, DisplayName: "Delete Bank Types", Group: "bank_types", Description: "Delete bank type records"},
+
+	{Name: PermCompanyBankView, DisplayName: "View Company Banks", Group: "company_banks", Description: "View company bank records"},
+	{Name: PermCompanyBankCreate, DisplayName: "Create Company Banks", Group: "company_banks", Description: "Create new company bank records"},
+	{Name: PermCompanyBankEdit, DisplayName: "Edit Company Banks", Group: "company_banks", Description: "Edit existing company bank records"},
+	{Name: PermCompanyBankDelete, DisplayName: "Delete Company Banks", Group: "company_banks", Description: "Delete company bank records"},
+
+	{Name: PermProductTypeView, DisplayName: "View Product Types", Group: "product_types", Description: "View product type records"},
+	{Name: PermProductTypeCreate, DisplayName: "Create Product Types", Group: "product_types", Description: "Create new product type records"},
+	{Name: PermProductTypeEdit, DisplayName: "Edit Product Types", Group: "product_types", Description: "Edit existing product type records"},
+	{Name: PermProductTypeDelete, DisplayName: "Delete Product Types", Group: "product_types", Description: "Delete product type records"},
+
+	{Name: PermBonusOptionView, DisplayName: "View Bonus Options", Group: "bonus_options", Description: "View bonus option records"},
+	{Name: PermBonusOptionCreate, DisplayName: "Create Bonus Options", Group: "bonus_options", Description: "Create new bonus option records"},
+	{Name: PermBonusOptionEdit, DisplayName: "Edit Bonus Options", Group: "bonus_options", Description: "Edit existing bonus option records"},
+	{Name: PermBonusOptionDelete, DisplayName: "Delete Bonus Options", Group: "bonus_options", Description: "Delete bonus option records"},
+
+	{Name: PermLevelView, DisplayName: "View Levels", Group: "levels", Description: "View level records"},
+	{Name: PermLevelCreate, DisplayName: "Create Levels", Group: "levels", Description: "Create new level records"},
+	{Name: PermLevelEdit, DisplayName: "Edit Levels", Group: "levels", Description: "Edit existing level records"},
+	{Name: PermLevelDelete, DisplayName: "Delete Levels", Group: "levels", Description: "Delete level records"},
+
+	{Name: PermContactSourceView, DisplayName: "View Contact Sources", Group: "contact_sources", Description: "View contact source records"},
+	{Name: PermContactSourceCreate, DisplayName: "Create Contact Sources", Group: "contact_sources", Description: "Create new contact source records"},
+	{Name: PermContactSourceEdit, DisplayName: "Edit Contact Sources", Group: "contact_sources", Description: "Edit existing contact source records"},
+	{Name: PermContactSourceDelete, DisplayName: "Delete Contact Sources", Group: "contact_sources", Description: "Delete contact source records"},
+
+	{Name: PermCurrencyView, DisplayName: "View Currencies", Group: "currencies", Description: "View currency records"},
+	{Name: PermCurrencyCreate, DisplayName: "Create Currencies", Group: "currencies", Description: "Create new currency records"},
+	{Name: PermCurrencyEdit, DisplayName: "Edit Currencies", Group: "currencies", Description: "Edit existing currency records"},
+	{Name: PermCurrencyDelete, DisplayName: "Delete Currencies", Group: "currencies", Description: "Delete currency records"},
 }
 
 // TransactionPermissions is kept for backward-compatibility with seed code in routes.go

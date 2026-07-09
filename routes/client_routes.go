@@ -16,6 +16,7 @@ func RegisterClientRoutes(rg *gin.RouterGroup, ctrl *controllers.ClientControlle
 		// Core CRUD
 		clients.GET("", middlewares.RequirePermission(userRepo, models.PermClientView), ctrl.List)
 		clients.GET("/check-code", middlewares.RequirePermission(userRepo, models.PermClientView), ctrl.CheckCode)
+		clients.GET("/preview-code", middlewares.RequirePermission(userRepo, models.PermClientView), ctrl.PreviewCode)
 		clients.GET("/next-code", middlewares.RequirePermission(userRepo, models.PermClientView), ctrl.NextCode)
 		clients.POST("", middlewares.RequirePermission(userRepo, models.PermClientCreate), ctrl.Create)
 		clients.GET("/:id", middlewares.RequirePermission(userRepo, models.PermClientView), ctrl.GetByID)

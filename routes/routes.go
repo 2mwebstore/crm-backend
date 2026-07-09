@@ -42,6 +42,9 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	withdrawalRepo := repositories.NewWithdrawalRepository(db)
 	turnoverBetRepo := repositories.NewTurnoverBetRepository(db)
 	followUpRepo := repositories.NewFollowUpRepository(db)
+	companyBankRepo := repositories.NewCompanyBankRepository(db)
+	balanceTxRepo := repositories.NewBalanceTransactionRepository(db)
+	dailyStartBalanceRepo := repositories.NewDailyStartBalanceRepository(db)
 
 	// ── Seed permissions + system roles ───────────────────────────────────────
 	// Always seed permissions — idempotent, adds any new ones added in code
@@ -59,15 +62,18 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	levelSvc := services.NewLevelService(levelRepo)
 	contactSourceSvc := services.NewContactSourceService(contactSourceRepo)
 	bankTypeSvc := services.NewBankTypeService(bankTypeRepo)
+	CompanyBankSvc := services.NewCompanyBankService(companyBankRepo)
 	productTypeSvc := services.NewProductTypeService(productTypeRepo)
 	bonusOptionSvc := services.NewBonusOptionTypeService(bonusOptionRepo)
 	currencyTypeSvc := services.NewCurrencyTypeService(currencyTypeRepo)
 	clientSvc := services.NewClientService(clientRepo, db)
 	interestingSvc := services.NewInterestingClientService(interestingRepo, db)
-	depositSvc := services.NewDepositService(depositRepo, clientRepo, db)
-	withdrawalSvc := services.NewWithdrawalService(withdrawalRepo, db)
+	depositSvc := services.NewDepositService(depositRepo, clientRepo, companyBankRepo, productTypeRepo, dailyStartBalanceRepo, db)
+	withdrawalSvc := services.NewWithdrawalService(withdrawalRepo, clientRepo, companyBankRepo, productTypeRepo, dailyStartBalanceRepo, db)
 	turnoverBetSvc := services.NewTurnoverBetService(turnoverBetRepo, db)
 	followUpSvc := services.NewFollowUpService(followUpRepo, db)
+	balanceTxSvc := services.NewBalanceTransactionService(balanceTxRepo)
+	dailyStartBalanceSvc := services.NewDailyStartBalanceService(dailyStartBalanceRepo, userRepo, companyBankRepo, productTypeRepo, depositRepo, withdrawalRepo)
 
 	// ── Controllers ───────────────────────────────────────────────────────────
 	authCtrl := controllers.NewAuthController(authSvc)
@@ -76,9 +82,10 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	userCtrl := controllers.NewUserController(userSvc)
 	levelCtrl := controllers.NewLevelController(levelSvc, userSvc)
 	contactSourceCtrl := controllers.NewContactSourceController(contactSourceSvc, userSvc)
-	clientCtrl := controllers.NewClientController(clientSvc, userSvc, userRepo)
+	clientCtrl := controllers.NewClientController(clientSvc, userSvc, userRepo, db)
 	interestingCtrl := controllers.NewInterestingClientController(interestingSvc, userSvc, clientRepo, userRepo, db)
 	bankTypeCtrl := controllers.NewBankTypeController(bankTypeSvc, userSvc)
+	companybankCtrl := controllers.NewCompanyBankController(CompanyBankSvc, userSvc)
 	productTypeCtrl := controllers.NewProductTypeController(productTypeSvc, userSvc)
 	bonusOptionCtrl := controllers.NewBonusOptionTypeController(bonusOptionSvc, userSvc)
 	currencyTypeCtrl := controllers.NewCurrencyTypeController(currencyTypeSvc, userSvc)
@@ -87,8 +94,10 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	depositCtrl := controllers.NewDepositController(db, depositSvc, userSvc)
 	turnoverBetCtrl := controllers.NewTurnoverBetController(db, turnoverBetSvc, userSvc)
 	followUpCtrl := controllers.NewFollowUpController(db, followUpSvc, userSvc)
-	reportCtrl := controllers.NewReportController(clientRepo, interestingRepo, depositRepo, withdrawalRepo, userRepo)
+	reportCtrl := controllers.NewReportController(clientRepo, interestingRepo, depositRepo, withdrawalRepo, userRepo, companyBankRepo, bankTypeRepo)
 	withdrawalCtrl := controllers.NewWithdrawalController(db, withdrawalSvc, userSvc)
+	balanceTxCtrl := controllers.NewBalanceTransactionController(balanceTxSvc)
+	dailyStartBalanceCtrl := controllers.NewDailyStartBalanceController(dailyStartBalanceSvc)
 
 	// ── API v1 ────────────────────────────────────────────────────────────────
 	// Inject db into context for controllers that need raw queries
@@ -102,12 +111,13 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	RegisterInterestingClientRoutes(v1, interestingCtrl, userRepo)
 	RegisterLevelRoutes(v1, levelCtrl, userRepo)
 	RegisterContactSourceRoutes(v1, contactSourceCtrl, userRepo)
-	RegisterLookupRoutes(v1, bankTypeCtrl, productTypeCtrl, bonusOptionCtrl, currencyTypeCtrl, userRepo)
+	RegisterLookupRoutes(v1, bankTypeCtrl, companybankCtrl, productTypeCtrl, bonusOptionCtrl, currencyTypeCtrl, userRepo, balanceTxCtrl)
 	RegisterTransactionRoutes(v1, depositCtrl, withdrawalCtrl, userRepo)
 	RegisterTurnoverBetRoutes(v1, turnoverBetCtrl, userRepo)
 	RegisterFollowUpRoutes(v1, followUpCtrl, userRepo)
 	RegisterReportRoutes(v1, reportCtrl, userRepo)
 	RegisterBranchRoutes(v1, branchCtrl)
+	RegisterDailyStartBalanceRoutes(v1, dailyStartBalanceCtrl)
 
 	return r
 }

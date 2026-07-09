@@ -22,6 +22,10 @@ type DepositRepository interface {
 	SumDeposits(clientID, clientProductID uint) (float64, error)
 	SumWithdrawals(clientID, clientProductID uint) (float64, error)
 	RunningBalance(clientID, clientProductID uint, beforeID uint) (float64, error)
+	// ListSinceForBranch returns every deposit for a branch with date >= since
+	// (precise timestamp, not just calendar day) — used to show exactly which
+	// deposits contributed to a shift's income since it was opened.
+	ListSinceForBranch(branchID uint, since time.Time) ([]models.Deposit, error)
 }
 
 type depositRepository struct{ db *gorm.DB }
@@ -36,6 +40,7 @@ func (r *depositRepository) preload(q *gorm.DB) *gorm.DB {
 		Preload("ClientProduct.ProductType").
 		Preload("ClientBank.BankType").
 		Preload("CompanyBank").
+		Preload("CompanyBank.BankType").
 		Preload("BonusOption").
 		Preload("CreatedBy").
 		Preload("ApprovedBy")
@@ -94,6 +99,7 @@ func (r *depositRepository) List(f transactiondto.FilterQuery, p utils.Paginatio
 		Preload("ClientProduct.ProductType").
 		Preload("ClientBank.BankType").
 		Preload("CompanyBank").
+		Preload("CompanyBank.BankType").
 		Preload("BonusOption").
 		Preload("CreatedBy").
 		Preload("ApprovedBy")
@@ -196,6 +202,19 @@ func (r *depositRepository) RunningBalance(clientID, clientProductID uint, befor
 		return 0, err
 	}
 	return sumDep - sumWdr, nil
+}
+
+// ListSinceForBranch returns every deposit for a branch with date >= since
+// (a precise timestamp, not just a calendar day) — used to show exactly
+// which deposits happened during an open shift, since the shift's own
+// opening time.
+func (r *depositRepository) ListSinceForBranch(branchID uint, since time.Time) ([]models.Deposit, error) {
+	var list []models.Deposit
+	err := r.preload(r.db).
+		Where("deposits.branch_id = ? AND deposits.date >= ?", branchID, since).
+		Order("deposits.date ASC").
+		Find(&list).Error
+	return list, err
 }
 
 func (r *depositRepository) resolveUserBranches(userID uint) ([]uint, bool) {

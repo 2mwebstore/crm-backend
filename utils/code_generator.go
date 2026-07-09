@@ -29,19 +29,19 @@ const (
 func entityPrefix(entity EntityType) string {
 	switch entity {
 	case EntityClient:
-		return "CLT"
+		return "C"
 	case EntityIC:
-		return "INT"
+		return "I"
 	case EntityDeposit:
-		return "DEP"
+		return "D"
 	case EntityWithdrawal:
-		return "WDR"
+		return "W"
 	case EntityTurnoverBet:
-		return "TB"
+		return "T"
 	case EntityFollowUp:
-		return "FU"
+		return "F"
 	default:
-		return "GEN"
+		return "G" // Generic fallback
 	}
 }
 
@@ -180,17 +180,15 @@ func GenerateCodeForBranch(db *gorm.DB, branchID uint, entity EntityType) string
 }
 
 // GenerateICCodeForBranch generates IC code using branch code as prefix.
-// Format: {BRANCHCODE}-{000001}  e.g. CRNS-000001
+// Format: {BRANCHCODE}-{PREFIX}{000001}  e.g. CRNS-I000001
 func GenerateICCodeForBranch(db *gorm.DB, branchID uint, entity EntityType) string {
 	if db == nil || branchID == 0 {
 		return fallbackCode(entity)
 	}
-	// Get branch code
 	var branchCode string
 	if err := db.Raw("SELECT code FROM branches WHERE id = ?", branchID).Scan(&branchCode).Error; err != nil || branchCode == "" {
 		return nextSequentialCode(db, branchID, entity)
 	}
-	// Atomic increment
 	if err := db.Exec(`
 		INSERT INTO code_sequences (branch_id, entity_type, last_seq, updated_at)
 		VALUES (?, ?, 1, NOW())
@@ -200,11 +198,11 @@ func GenerateICCodeForBranch(db *gorm.DB, branchID uint, entity EntityType) stri
 	}
 	var seq uint64
 	db.Raw("SELECT last_seq FROM code_sequences WHERE branch_id = ? AND entity_type = ?", branchID, entity).Scan(&seq)
-	// Format: CRNS-000001
-	return fmt.Sprintf("%s-%03d", branchCode, seq)
+	return fmt.Sprintf("%s-%s%06d", branchCode, entityPrefix(entity), seq)
 }
 
 // PeekICNextCode previews the next IC code for a branch without incrementing.
+// Format: {BRANCHCODE}-{PREFIX}{000001}  e.g. CRNS-I000002
 func PeekICNextCode(db *gorm.DB, branchID uint, entity EntityType) string {
 	if db == nil || branchID == 0 {
 		return "—"
@@ -216,7 +214,7 @@ func PeekICNextCode(db *gorm.DB, branchID uint, entity EntityType) string {
 	}
 	var seq uint64
 	db.Raw("SELECT COALESCE(last_seq, 0) FROM code_sequences WHERE branch_id = ? AND entity_type = ?", branchID, entity).Scan(&seq)
-	return fmt.Sprintf("%s-%03d", branchCode, seq+1)
+	return fmt.Sprintf("%s-%s%06d", branchCode, entityPrefix(entity), seq+1)
 }
 
 // GenerateTxCodeForBranch generates transaction code using branch prefix.
@@ -239,7 +237,7 @@ func GenerateTxCodeForBranch(db *gorm.DB, branchID uint, entity EntityType) stri
 	}
 	var seq uint64
 	db.Raw("SELECT last_seq FROM code_sequences WHERE branch_id = ? AND entity_type = ?", branchID, entity).Scan(&seq)
-	return fmt.Sprintf("%s-%03d", branchCode, seq)
+	return fmt.Sprintf("%s-%s-%06d", branchCode, entityPrefix(entity), seq)
 }
 
 // PeekTxCode previews next transaction code for a branch without incrementing.

@@ -40,14 +40,7 @@ type clientService struct {
 func NewClientService(repo repositories.ClientRepository, db *gorm.DB) ClientService {
 	return &clientService{repo, db}
 }
-
 func (s *clientService) Create(createdByID uint, req clientdto.CreateClientRequest) (*models.Client, error) {
-	// Check code uniqueness
-	var existing models.Client
-	if err := s.db.Where("code = ?", req.Code).First(&existing).Error; err == nil {
-		return nil, errors.New("code already exists: " + req.Code)
-	}
-
 	isActive := true
 	if req.IsActive != nil {
 		isActive = *req.IsActive
@@ -58,8 +51,25 @@ func (s *clientService) Create(createdByID uint, req clientdto.CreateClientReque
 		dateJoined = req.DateJoined.ToTimePtr()
 	}
 
+	// Generate code: if branch selected → use branch sequence, else user's assigned branch
+	var code string
+	if req.Code != "" {
+		// Explicit code provided — check uniqueness
+		var existing models.Client
+		if err := s.db.Where("code = ?", req.Code).First(&existing).Error; err == nil {
+			return nil, errors.New("code already exists: " + req.Code)
+		}
+		code = req.Code
+	} else if req.BranchID != nil && *req.BranchID != 0 {
+		// Branch selected → generate sequential code for that branch
+		code = utils.GenerateICCodeForBranch(s.db, *req.BranchID, utils.EntityClient)
+	} else {
+		// Fall back to user's assigned branch
+		code = utils.GenerateCode(s.db, createdByID, utils.EntityClient)
+	}
+
 	client := &models.Client{
-		Code:            req.Code,
+		Code:            code,
 		Name:            req.Name,
 		DateJoined:      dateJoined,
 		Remark:          req.Remark,
@@ -89,7 +99,6 @@ func (s *clientService) Create(createdByID uint, req clientdto.CreateClientReque
 	}
 	return s.repo.FindByIDUnsafe(client.ID)
 }
-
 func (s *clientService) GetByID(id uint, scopeIDs []uint) (*models.Client, error) {
 	c, err := s.repo.FindByID(id, scopeIDs)
 	if err != nil {

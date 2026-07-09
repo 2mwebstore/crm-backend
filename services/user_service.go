@@ -82,9 +82,23 @@ func (s *userService) AdminCreateUser(req userdto.AdminCreateUserRequest) (*mode
 		roleID = req.RoleID
 	}
 
+	// nil/0 = root/simple user, otherwise the new user becomes a sub-user
+	// of the given parent.
+	var parentID *uint
+	if req.ParentID != nil && *req.ParentID != 0 {
+		parent, err := s.userRepo.FindByID(*req.ParentID)
+		if err != nil {
+			return nil, errors.New("parent user not found")
+		}
+		if parent.IsSuperAdmin {
+			return nil, errors.New("cannot set a super admin as parent")
+		}
+		parentID = req.ParentID
+	}
+
 	user := &models.User{
 		Name: req.Name, Email: req.Email, PasswordHash: hash,
-		RoleID: roleID, IsActive: true,
+		RoleID: roleID, ParentID: parentID, IsActive: true,
 	}
 	if err := s.userRepo.Create(user); err != nil {
 		return nil, err
@@ -120,6 +134,33 @@ func (s *userService) AdminUpdateUser(targetID uint, req userdto.AdminUpdateUser
 				return nil, errors.New("role not found")
 			}
 			target.RoleID = req.RoleID
+		}
+	}
+
+	// 0 = make root user. Otherwise re-parent the target under the given
+	// user.
+	//
+	// NOTE: this only guards against direct self-parenting. It does NOT
+	// check for deeper cycles — e.g. setting a user's parent to one of
+	// their own descendants — which would need walking
+	// GetDescendantIDs(targetID) and rejecting if *req.ParentID appears in
+	// that set. Left as a follow-up if this turns out to matter in
+	// practice.
+	if req.ParentID != nil {
+		if *req.ParentID == 0 {
+			target.ParentID = nil
+		} else {
+			if *req.ParentID == targetID {
+				return nil, errors.New("a user cannot be their own parent")
+			}
+			parent, err := s.userRepo.FindByID(*req.ParentID)
+			if err != nil {
+				return nil, errors.New("parent user not found")
+			}
+			if parent.IsSuperAdmin {
+				return nil, errors.New("cannot set a super admin as parent")
+			}
+			target.ParentID = req.ParentID
 		}
 	}
 
@@ -198,7 +239,7 @@ func (s *userService) CreateSubUser(callerID uint, req userdto.CreateSubUserRequ
 
 	user := &models.User{
 		Name: req.Name, Email: req.Email, PasswordHash: hash,
-		RoleID: roleID, IsActive: true,
+		RoleID: roleID, IsActive: true, ParentID: &callerID,
 	}
 	if err := s.userRepo.Create(user); err != nil {
 		return nil, err

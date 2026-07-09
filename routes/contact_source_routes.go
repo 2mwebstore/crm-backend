@@ -10,13 +10,19 @@ import (
 )
 
 func RegisterContactSourceRoutes(rg *gin.RouterGroup, ctrl *controllers.ContactSourceController, userRepo repositories.UserRepository) {
+	view := middlewares.RequirePermission(userRepo,
+		models.PermContactSourceView, models.PermContactSourceCreate, models.PermContactSourceEdit, models.PermContactSourceDelete)
+	create := middlewares.RequirePermission(userRepo, models.PermContactSourceCreate)
+	edit := middlewares.RequirePermission(userRepo, models.PermContactSourceEdit)
+	del := middlewares.RequirePermission(userRepo, models.PermContactSourceDelete)
+
 	g := rg.Group("/contact-sources")
 	g.Use(middlewares.Auth())
 	{
-		g.GET("", ctrl.List)
-		g.GET("/:id", ctrl.GetByID)
-		g.POST("", middlewares.RequirePermission(userRepo, models.PermLookupManage, models.PermConfigManage), ctrl.Create)
-		g.PUT("/:id", middlewares.RequirePermission(userRepo, models.PermLookupManage, models.PermConfigManage), ctrl.Update)
-		g.DELETE("/:id", middlewares.RequirePermission(userRepo, models.PermLookupManage, models.PermConfigManage), ctrl.Delete)
+		g.GET("", view, ctrl.List)
+		g.GET("/:id", view, ctrl.GetByID)
+		g.POST("", create, ctrl.Create)
+		g.PUT("/:id", edit, ctrl.Update)
+		g.DELETE("/:id", del, ctrl.Delete)
 	}
 }
