@@ -73,7 +73,7 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	turnoverBetSvc := services.NewTurnoverBetService(turnoverBetRepo, db)
 	followUpSvc := services.NewFollowUpService(followUpRepo, db)
 	balanceTxSvc := services.NewBalanceTransactionService(balanceTxRepo)
-	dailyStartBalanceSvc := services.NewDailyStartBalanceService(dailyStartBalanceRepo, userRepo, companyBankRepo, productTypeRepo, depositRepo, withdrawalRepo)
+	dailyStartBalanceSvc := services.NewDailyStartBalanceService(dailyStartBalanceRepo, userRepo, companyBankRepo, productTypeRepo, depositRepo, withdrawalRepo, balanceTxRepo)
 
 	// ── Controllers ───────────────────────────────────────────────────────────
 	authCtrl := controllers.NewAuthController(authSvc)
@@ -117,7 +117,7 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	RegisterFollowUpRoutes(v1, followUpCtrl, userRepo)
 	RegisterReportRoutes(v1, reportCtrl, userRepo)
 	RegisterBranchRoutes(v1, branchCtrl)
-	RegisterDailyStartBalanceRoutes(v1, dailyStartBalanceCtrl)
+	RegisterDailyStartBalanceRoutes(v1, dailyStartBalanceCtrl, userRepo)
 
 	return r
 }

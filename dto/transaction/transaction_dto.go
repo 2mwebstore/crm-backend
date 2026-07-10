@@ -9,11 +9,11 @@ type CreateRequest struct {
 	ClientProductID uint           `json:"client_product_id" binding:"required"`
 	ClientBankID    uint           `json:"client_bank_id" binding:"required"`
 	CompanyBankID   uint           `json:"company_bank_id" binding:"required"`
-	Amount          float64        `json:"amount" binding:"required,gt=0"`
+	Amount          float64        `json:"amount" binding:"gte=0"`
 	Currency        string         `json:"currency" binding:"omitempty,oneof=USD KHR"`
 	BranchID        *uint          `json:"branch_id"`
 	BonusOptionID   *uint          `json:"bonus_option_id"`
-	BonusAmount     float64        `json:"bonus_amount"`
+	BonusAmount     float64        `json:"bonus_amount" binding:"omitempty,gte=0"`
 	TO              float64        `json:"to"`
 	OS              float64        `json:"os"`
 	Bal             float64        `json:"bal"`
@@ -27,7 +27,7 @@ type UpdateRequest struct {
 	CompanyBankID *uint           `json:"company_bank_id"`
 	BranchID      *uint           `json:"branch_id"`
 	BonusOptionID *uint           `json:"bonus_option_id"`
-	BonusAmount   *float64        `json:"bonus_amount"`
+	BonusAmount   *float64        `json:"bonus_amount" binding:"omitempty,gte=0"`
 	Amount        *float64        `json:"amount"`
 	TO            *float64        `json:"to"`
 	OS            *float64        `json:"os"`

@@ -69,6 +69,16 @@ type TodayBalanceResponse struct {
 	// than just showing the before/after balance diff. Empty/omitted
 	// when no shift is currently open.
 	IncomeTransactions []IncomeTransactionRow `json:"income_transactions,omitempty"`
+
+	// BalanceTransactions is the raw ledger — every CompanyBank cash /
+	// ProductType credit top-up or withdrawal recorded against this
+	// branch's accounts since this shift opened. Distinct from
+	// IncomeTransactions: this also captures manual admin top-ups/
+	// withdrawals made directly on a Company Bank or Product Type record
+	// (outside of any client deposit/withdrawal), so it's the complete
+	// audit trail behind the Income totals, not just the client-facing
+	// side of it.
+	BalanceTransactions []models.BalanceTransaction `json:"balance_transactions,omitempty"`
 }
 
 // IncomeTransactionRow is one Deposit or Withdrawal that happened since
@@ -110,15 +120,21 @@ type DailyStartBalanceService interface {
 	CloseToday(callerID uint, branchID uint) (*models.DailyStartBalance, error)
 	GetToday(callerID uint, branchID uint) (*TodayBalanceResponse, error)
 	History(callerID uint, branchID uint, page, pageSize int) ([]models.DailyStartBalance, int64, error)
+	// GetShiftBalanceTransactions returns the ledger entries (topups/
+	// withdrawals) for any single shift — open or already closed — used
+	// for an on-demand "View Transactions" lookup from the History table,
+	// without bloating the paginated History response itself.
+	GetShiftBalanceTransactions(callerID uint, shiftID uint) ([]models.BalanceTransaction, error)
 }
 
 type dailyStartBalanceService struct {
-	repo            repositories.DailyStartBalanceRepository
-	userRepo        repositories.UserRepository
-	companyBankRepo repositories.CompanyBankRepository
-	productTypeRepo repositories.ProductTypeRepository
-	depositRepo     repositories.DepositRepository
-	withdrawalRepo  repositories.WithdrawalRepository
+	repo                   repositories.DailyStartBalanceRepository
+	userRepo               repositories.UserRepository
+	companyBankRepo        repositories.CompanyBankRepository
+	productTypeRepo        repositories.ProductTypeRepository
+	depositRepo            repositories.DepositRepository
+	withdrawalRepo         repositories.WithdrawalRepository
+	balanceTransactionRepo repositories.BalanceTransactionRepository
 }
 
 func NewDailyStartBalanceService(
@@ -128,8 +144,9 @@ func NewDailyStartBalanceService(
 	productTypeRepo repositories.ProductTypeRepository,
 	depositRepo repositories.DepositRepository,
 	withdrawalRepo repositories.WithdrawalRepository,
+	balanceTransactionRepo repositories.BalanceTransactionRepository,
 ) DailyStartBalanceService {
-	return &dailyStartBalanceService{repo, userRepo, companyBankRepo, productTypeRepo, depositRepo, withdrawalRepo}
+	return &dailyStartBalanceService{repo, userRepo, companyBankRepo, productTypeRepo, depositRepo, withdrawalRepo, balanceTransactionRepo}
 }
 
 // checkBranchAccess confirms the caller can act on the given branch —
@@ -351,6 +368,11 @@ func (s *dailyStartBalanceService) GetToday(callerID uint, branchID uint) (*Toda
 		// this shift's own opening time — this is the real answer to
 		// "where did this income come from", not just a balance diff.
 		resp.IncomeTransactions = s.incomeTransactionsSince(branchID, snap.CreatedAt)
+
+		// Pull the raw CompanyBank/ProductType ledger entries for this
+		// branch's accounts since this shift opened — bankRows/productRows
+		// already give us exactly which entities belong to this branch.
+		resp.BalanceTransactions = s.balanceTransactionsInRange(bankRows, productRows, snap.CreatedAt, nil)
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}
@@ -414,4 +436,59 @@ func (s *dailyStartBalanceService) incomeTransactionsSince(branchID uint, since 
 
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Date.Before(rows[j].Date) })
 	return rows
+}
+
+// balanceTransactionsInRange fetches every ledger entry for the given
+// company banks + product types whose CreatedAt falls within [from, to]
+// (to=nil means "up to now"), merged into one time-ordered list. Quietly
+// returns an empty slice on error, same rationale as
+// incomeTransactionsSince — this is supplementary audit detail, not
+// something that should block the rest of the response.
+func (s *dailyStartBalanceService) balanceTransactionsInRange(bankRows []CompanyBankBalanceRow, productRows []ProductTypeBalanceRow, from time.Time, to *time.Time) []models.BalanceTransaction {
+	bankIDs := make([]uint, len(bankRows))
+	for i, b := range bankRows {
+		bankIDs[i] = b.ID
+	}
+	productIDs := make([]uint, len(productRows))
+	for i, p := range productRows {
+		productIDs[i] = p.ID
+	}
+
+	var all []models.BalanceTransaction
+	if bankTx, err := s.balanceTransactionRepo.ListByEntitiesInRange(models.BalanceEntityCompanyBank, bankIDs, from, to); err == nil {
+		all = append(all, bankTx...)
+	}
+	if productTx, err := s.balanceTransactionRepo.ListByEntitiesInRange(models.BalanceEntityProductType, productIDs, from, to); err == nil {
+		all = append(all, productTx...)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].CreatedAt.Before(all[j].CreatedAt) })
+	return all
+}
+
+// GetShiftBalanceTransactions looks up any single shift (open or closed)
+// by ID, confirms the caller has access to its branch, and returns the
+// ledger entries recorded against that branch's company banks/product
+// types between the shift's own open and close (or "now" if still open).
+//
+// NOTE: this scopes to the branch's CURRENTLY configured company banks/
+// product types (via ListForUser), same as the rest of this feature — if
+// an account was added, removed, or deactivated after this shift closed,
+// this reflects today's account list, not necessarily the exact set that
+// existed at the time. Fine for the common case; flagging in case it ever
+// matters for a heavily-restructured branch's older history.
+func (s *dailyStartBalanceService) GetShiftBalanceTransactions(callerID uint, shiftID uint) ([]models.BalanceTransaction, error) {
+	shift, err := s.repo.FindByID(shiftID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.checkBranchAccess(callerID, shift.BranchID); err != nil {
+		return nil, err
+	}
+
+	_, _, bankRows, productRows, err := s.currentTotals(callerID, shift.BranchID)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.balanceTransactionsInRange(bankRows, productRows, shift.CreatedAt, shift.ClosedAt), nil
 }

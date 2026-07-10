@@ -93,3 +93,22 @@ func (ctrl *DailyStartBalanceController) History(c *gin.Context) {
 	}
 	utils.OK(c, "success", gin.H{"items": list, "total": total, "page": page, "page_size": pageSize})
 }
+
+// ShiftBalanceTransactions godoc — GET /daily-balances/:id/balance-transactions
+// On-demand lookup of the ledger entries (top-ups/withdrawals) recorded
+// during a specific shift — open or already closed. Used from the History
+// table's "View Transactions" action, rather than eagerly including this
+// on every row of the paginated History list.
+func (ctrl *DailyStartBalanceController) ShiftBalanceTransactions(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		utils.BadRequest(c, "invalid shift id")
+		return
+	}
+	list, err := ctrl.svc.GetShiftBalanceTransactions(middlewares.GetUserID(c), uint(id))
+	if err != nil {
+		utils.BadRequest(c, err.Error())
+		return
+	}
+	utils.OK(c, "success", list)
+}

@@ -21,6 +21,11 @@ type ProductTypeService interface {
 	Delete(id uint, scopeIDs []uint) error
 	TopUpCredit(id uint, scopeIDs []uint, amount float64, remark string, createdByID uint) (*models.ProductType, error)
 	WithdrawCredit(id uint, scopeIDs []uint, amount float64, remark string, createdByID uint) (*models.ProductType, error)
+	// AdjustCredit applies a manual correction — direction is "addition"
+	// or "subtraction" — recorded under BalanceSourceAdjustment so it's
+	// always clearly distinguishable from a routine Top Up/Withdraw in
+	// the ledger.
+	AdjustCredit(id uint, scopeIDs []uint, direction string, amount float64, remark string, createdByID uint) (*models.ProductType, error)
 }
 
 type productTypeService struct {
@@ -85,7 +90,11 @@ func (s *productTypeService) TopUpCredit(id uint, scopeIDs []uint, amount float6
 	if _, err := s.repo.FindByID(id, scopeIDs); err != nil {
 		return nil, errors.New("product type not found")
 	}
-	return s.repo.TopUpCredit(id, amount, remark, createdByID)
+	// This service method is only ever reached via the direct admin Top
+	// Up/Withdraw endpoint (Configuration module) — never as a side effect
+	// of a client Deposit/Withdrawal, which calls the repository directly
+	// from deposit_service.go/withdrawal_service.go instead.
+	return s.repo.TopUpCredit(id, amount, remark, createdByID, models.BalanceSourceConfiguration)
 }
 
 func (s *productTypeService) WithdrawCredit(id uint, scopeIDs []uint, amount float64, remark string, createdByID uint) (*models.ProductType, error) {
@@ -95,7 +104,24 @@ func (s *productTypeService) WithdrawCredit(id uint, scopeIDs []uint, amount flo
 	if _, err := s.repo.FindByID(id, scopeIDs); err != nil {
 		return nil, errors.New("product type not found")
 	}
-	return s.repo.WithdrawCredit(id, amount, remark, createdByID)
+	return s.repo.WithdrawCredit(id, amount, remark, createdByID, models.BalanceSourceConfiguration)
+}
+
+func (s *productTypeService) AdjustCredit(id uint, scopeIDs []uint, direction string, amount float64, remark string, createdByID uint) (*models.ProductType, error) {
+	if amount <= 0 {
+		return nil, errors.New("amount must be positive")
+	}
+	if _, err := s.repo.FindByID(id, scopeIDs); err != nil {
+		return nil, errors.New("product type not found")
+	}
+	switch direction {
+	case "addition":
+		return s.repo.TopUpCredit(id, amount, remark, createdByID, models.BalanceSourceAdjustment)
+	case "subtraction":
+		return s.repo.WithdrawCredit(id, amount, remark, createdByID, models.BalanceSourceAdjustment)
+	default:
+		return nil, errors.New("direction must be \"addition\" or \"subtraction\"")
+	}
 }
 
 func (s *productTypeService) Delete(id uint, scopeIDs []uint) error {

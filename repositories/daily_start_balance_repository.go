@@ -16,6 +16,16 @@ type DailyStartBalanceRepository interface {
 	// DB transaction.
 	UpdateCloseWithDetails(x *models.DailyStartBalance, details []models.DailyStartBalanceDetail) error
 	FindOpenByBranch(branchID uint) (*models.DailyStartBalance, error)
+	// FindByID looks up any single shift (open or closed) by its own ID —
+	// used when viewing a specific past shift's transactions from History.
+	FindByID(id uint) (*models.DailyStartBalance, error)
+	// FindLatestClosedByBranch returns the most recently closed shift for
+	// this branch (the one with the latest ClosedAt), or
+	// gorm.ErrRecordNotFound if this branch has never closed a shift.
+	// Used to lock editing of deposits/withdrawals dated before a shift
+	// close — once a shift is closed, everything before that close time
+	// is considered reconciled.
+	FindLatestClosedByBranch(branchID uint) (*models.DailyStartBalance, error)
 	ListByBranch(branchID uint, page, pageSize int) ([]models.DailyStartBalance, int64, error)
 }
 
@@ -73,6 +83,27 @@ func (r *dailyStartBalanceRepository) FindOpenByBranch(branchID uint) (*models.D
 	err := r.db.Preload("CreatedBy").Preload("ClosedBy").Preload("Details").
 		Where("branch_id = ? AND closed_at IS NULL", branchID).
 		Order("created_at DESC").
+		First(&x).Error
+	if err != nil {
+		return nil, err
+	}
+	return &x, nil
+}
+
+func (r *dailyStartBalanceRepository) FindByID(id uint) (*models.DailyStartBalance, error) {
+	var x models.DailyStartBalance
+	err := r.db.Preload("CreatedBy").Preload("ClosedBy").Preload("Details").First(&x, id).Error
+	if err != nil {
+		return nil, err
+	}
+	return &x, nil
+}
+
+func (r *dailyStartBalanceRepository) FindLatestClosedByBranch(branchID uint) (*models.DailyStartBalance, error) {
+	var x models.DailyStartBalance
+	err := r.db.
+		Where("branch_id = ? AND closed_at IS NOT NULL", branchID).
+		Order("closed_at DESC").
 		First(&x).Error
 	if err != nil {
 		return nil, err

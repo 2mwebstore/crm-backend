@@ -67,6 +67,12 @@ func (s *withdrawalService) Create(createdByID uint, req transactiondto.CreateRe
 	if err := requireOpenShift(s.dailyStartBalanceRepo, req.BranchID); err != nil {
 		return nil, err
 	}
+	// CreateRequest.Amount's own binding was loosened to allow 0 for
+	// bonus-only Deposits — that doesn't apply to Withdrawals, which can
+	// never withdraw a zero amount, so it's enforced here instead.
+	if req.Amount <= 0 {
+		return nil, errors.New("amount must be greater than 0")
+	}
 
 	currency := req.Currency
 	if currency == "" {
@@ -84,17 +90,11 @@ func (s *withdrawalService) Create(createdByID uint, req transactiondto.CreateRe
 
 	bonusAmount := req.BonusAmount
 
-	totalDep, err := s.repo.SumDeposits(req.ClientID, req.ClientProductID)
-	if err != nil {
-		return nil, err
-	}
-	totalWdr, err := s.repo.SumWithdrawals(req.ClientID, req.ClientProductID)
-	if err != nil {
-		return nil, err
-	}
-
-	bal := utils.RoundFloat(totalDep-totalWdr-req.Amount-bonusAmount, 2)
-	os := utils.RoundFloat(bal-req.TO, 2)
+	// Bal and OS are stored exactly as given — no auto-calculation,
+	// matching how Update already treats them (a simple direct input with
+	// no cross-field side effects).
+	bal := utils.RoundFloat(req.Bal, 2)
+	os := utils.RoundFloat(req.OS, 2)
 
 	productTypeID, err := s.productTypeIDFor(req.ClientProductID)
 	if err != nil {
@@ -142,10 +142,10 @@ func (s *withdrawalService) Create(createdByID uint, req transactiondto.CreateRe
 			return err
 		}
 		remark := "Withdrawal " + txNo
-		if _, err := txCompanyBankRepo.WithdrawCash(req.CompanyBankID, req.Amount, remark, createdByID); err != nil {
+		if _, err := txCompanyBankRepo.WithdrawCash(req.CompanyBankID, req.Amount, remark, createdByID, models.BalanceSourceTransaction); err != nil {
 			return err
 		}
-		if _, err := txProductTypeRepo.TopUpCredit(productTypeID, creditDelta, remark, createdByID); err != nil {
+		if _, err := txProductTypeRepo.TopUpCredit(productTypeID, creditDelta, remark, createdByID, models.BalanceSourceTransaction); err != nil {
 			return err
 		}
 		return nil
@@ -171,6 +171,10 @@ func (s *withdrawalService) Update(id uint, scopeIDs []uint, req transactiondto.
 	w, err := s.repo.FindByID(id, scopeIDs)
 	if err != nil {
 		return nil, errors.New("withdrawal not found")
+	}
+
+	if err := requireNotLockedByClosedShift(s.dailyStartBalanceRepo, w.BranchID, w.Date); err != nil {
+		return nil, err
 	}
 
 	oldAmount := w.Amount
@@ -247,18 +251,18 @@ func (s *withdrawalService) Update(id uint, scopeIDs []uint, req transactiondto.
 			// as its own entry — never mutate a past ledger row.
 			remark := "Withdrawal edited " + w.TransactionNo
 			oldCreditDelta := utils.ConvertCurrency(oldAmount, w.Currency, productCurrency)
-			if _, err := txCompanyBankRepo.TopUpCash(oldCompanyBankID, oldAmount, remark+" (reversal)", updatedByID); err != nil {
+			if _, err := txCompanyBankRepo.TopUpCash(oldCompanyBankID, oldAmount, remark+" (reversal)", updatedByID, models.BalanceSourceTransaction); err != nil {
 				return err
 			}
-			if _, err := txProductTypeRepo.WithdrawCredit(productTypeID, oldCreditDelta, remark+" (reversal)", updatedByID); err != nil {
+			if _, err := txProductTypeRepo.WithdrawCredit(productTypeID, oldCreditDelta, remark+" (reversal)", updatedByID, models.BalanceSourceTransaction); err != nil {
 				return err
 			}
 
 			newCreditDelta := utils.ConvertCurrency(newAmount, w.Currency, productCurrency)
-			if _, err := txCompanyBankRepo.WithdrawCash(newCompanyBankID, newAmount, remark, updatedByID); err != nil {
+			if _, err := txCompanyBankRepo.WithdrawCash(newCompanyBankID, newAmount, remark, updatedByID, models.BalanceSourceTransaction); err != nil {
 				return err
 			}
-			if _, err := txProductTypeRepo.TopUpCredit(productTypeID, newCreditDelta, remark, updatedByID); err != nil {
+			if _, err := txProductTypeRepo.TopUpCredit(productTypeID, newCreditDelta, remark, updatedByID, models.BalanceSourceTransaction); err != nil {
 				return err
 			}
 		}
@@ -289,10 +293,10 @@ func (s *withdrawalService) Delete(id uint, scopeIDs []uint, deletedByID uint) e
 		txProductTypeRepo := repositories.NewProductTypeRepository(tx)
 
 		remark := "Withdrawal deleted " + w.TransactionNo
-		if _, err := txCompanyBankRepo.TopUpCash(w.CompanyBankID, w.Amount, remark, deletedByID); err != nil {
+		if _, err := txCompanyBankRepo.TopUpCash(w.CompanyBankID, w.Amount, remark, deletedByID, models.BalanceSourceTransaction); err != nil {
 			return err
 		}
-		if _, err := txProductTypeRepo.WithdrawCredit(productTypeID, creditDelta, remark, deletedByID); err != nil {
+		if _, err := txProductTypeRepo.WithdrawCredit(productTypeID, creditDelta, remark, deletedByID, models.BalanceSourceTransaction); err != nil {
 			return err
 		}
 		return txWithdrawalRepo.Delete(id)

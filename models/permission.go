@@ -74,6 +74,15 @@ const (
 	// Product Types — same idea, for the shared credit pool balance.
 	PermProductTypeTopup = "product_types.topup"
 
+	// Adjustment — a manual correction (Addition/Subtraction) against
+	// Company Bank cash or Product Type credit, kept as its own
+	// permission separate from the routine Top Up/Withdraw permission
+	// above, since adjustments are a more sensitive "fix a mistake"
+	// action that not every Top Up/Withdraw-capable role should
+	// necessarily be trusted with.
+	PermCompanyBankAdjustment = "company_banks.adjustment"
+	PermProductTypeAdjustment = "product_types.adjustment"
+
 	// ── Lookup tables, broken out into full View/Create/Edit/Delete ────────
 	// Each lookup table now has its own dedicated CRUD permissions, instead
 	// of every lookup entity sharing one blanket lookup.view/lookup.manage.
@@ -165,8 +174,10 @@ var AllPermissions = []Permission{
 	{Name: PermWithdrawalDelete, DisplayName: "Delete Withdrawals", Group: "withdrawals", Description: "Delete withdrawal records"},
 	// Company Banks (balance control)
 	{Name: PermCompanyBankTopup, DisplayName: "Top Up / Withdraw Company Bank Cash", Group: "company_banks", Description: "Add or remove cash on a company bank account, separate from managing the account record itself"},
+	{Name: PermCompanyBankAdjustment, DisplayName: "Adjust Company Bank Cash", Group: "company_banks", Description: "Manually add or subtract cash on a company bank account as a correction"},
 	// Product Types (balance control)
 	{Name: PermProductTypeTopup, DisplayName: "Top Up / Withdraw Product Credit", Group: "product_types", Description: "Add or remove credit on a product type's shared credit pool, separate from managing the product record itself"},
+	{Name: PermProductTypeAdjustment, DisplayName: "Adjust Product Credit", Group: "product_types", Description: "Manually add or subtract credit on a product type's shared credit pool as a correction"},
 	// Lookup tables — per-function View/Create/Edit/Delete permissions
 	{Name: PermBankTypeView, DisplayName: "View Bank Types", Group: "bank_types", Description: "View bank type records"},
 	{Name: PermBankTypeCreate, DisplayName: "Create Bank Types", Group: "bank_types", Description: "Create new bank type records"},
@@ -224,6 +235,19 @@ const (
 	PermFollowUpDelete  = "follow_ups.delete"
 )
 
+const (
+	// PermDailyBalanceView covers seeing the Daily Balance page itself —
+	// current totals, income, and History — without necessarily being
+	// able to act on it.
+	PermDailyBalanceView = "daily_balance.view"
+	// PermDailyBalanceStart/Close gate the two actions separately, so a
+	// role can be granted view-only access, or the ability to open a
+	// shift but not close it (or vice versa) — e.g. a supervisor who
+	// closes out shifts opened by regular staff.
+	PermDailyBalanceStart = "daily_balance.start"
+	PermDailyBalanceClose = "daily_balance.close"
+)
+
 func init() {
 	AllPermissions = append(AllPermissions,
 		Permission{Name: PermDepositApprove, DisplayName: "Approve Deposits", Group: "deposits", Description: "Approve or reject deposit transactions"},
@@ -236,5 +260,8 @@ func init() {
 		Permission{Name: PermFollowUpView, DisplayName: "View Follow Ups", Group: "follow_ups", Description: "View follow-up records"},
 		Permission{Name: PermFollowUpCreate, DisplayName: "Create Follow Ups", Group: "follow_ups", Description: "Create follow-up records"},
 		Permission{Name: PermFollowUpDelete, DisplayName: "Delete Follow Ups", Group: "follow_ups", Description: "Delete follow-up records"},
+		Permission{Name: PermDailyBalanceView, DisplayName: "View Daily Balance", Group: "daily_balance", Description: "View the Daily Balance page — current totals, income, and shift History"},
+		Permission{Name: PermDailyBalanceStart, DisplayName: "Start Shift", Group: "daily_balance", Description: "Open a new Daily Balance shift for a branch"},
+		Permission{Name: PermDailyBalanceClose, DisplayName: "Close Shift", Group: "daily_balance", Description: "Close the currently open Daily Balance shift for a branch"},
 	)
 }

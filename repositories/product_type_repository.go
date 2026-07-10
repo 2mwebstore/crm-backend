@@ -21,9 +21,13 @@ type ProductTypeRepository interface {
 	// TopUpCredit and WithdrawCredit apply an atomic, row-locked balance
 	// change and write a matching BalanceTransaction ledger row in the same
 	// DB transaction (see CompanyBankRepository.applyCashDelta for the same
-	// pattern/rationale).
-	TopUpCredit(id uint, amount float64, remark string, createdByID uint) (*models.ProductType, error)
-	WithdrawCredit(id uint, amount float64, remark string, createdByID uint) (*models.ProductType, error)
+	// pattern/rationale). source records WHERE this call came from
+	// (models.BalanceSourceTransaction for a client Deposit/Withdrawal side
+	// effect, models.BalanceSourceConfiguration for a direct manual admin
+	// action) — explicit at the call site rather than inferred later from
+	// the remark text.
+	TopUpCredit(id uint, amount float64, remark string, createdByID uint, source models.BalanceTxSource) (*models.ProductType, error)
+	WithdrawCredit(id uint, amount float64, remark string, createdByID uint, source models.BalanceTxSource) (*models.ProductType, error)
 }
 
 type productTypeRepository struct{ db *gorm.DB }
@@ -77,7 +81,7 @@ func (r *productTypeRepository) Update(x *models.ProductType) error {
 // locked with SELECT ... FOR UPDATE for the duration of the transaction, so
 // concurrent top-ups/withdrawals on the same product serialize instead of
 // racing, and the ledger row's old/new amounts always reflect real states.
-func (r *productTypeRepository) applyCreditDelta(id uint, amount float64, txType models.BalanceTxType, remark string, createdByID uint) (*models.ProductType, error) {
+func (r *productTypeRepository) applyCreditDelta(id uint, amount float64, txType models.BalanceTxType, remark string, createdByID uint, source models.BalanceTxSource) (*models.ProductType, error) {
 	if amount <= 0 {
 		return nil, errors.New("amount must be positive")
 	}
@@ -107,6 +111,7 @@ func (r *productTypeRepository) applyCreditDelta(id uint, amount float64, txType
 			EntityID:    id,
 			Field:       "credit",
 			Type:        txType,
+			Source:      source,
 			OldAmount:   oldAmount,
 			Amount:      amount,
 			NewAmount:   newAmount,
@@ -121,12 +126,12 @@ func (r *productTypeRepository) applyCreditDelta(id uint, amount float64, txType
 	return r.FindByID(id, nil)
 }
 
-func (r *productTypeRepository) TopUpCredit(id uint, amount float64, remark string, createdByID uint) (*models.ProductType, error) {
-	return r.applyCreditDelta(id, amount, models.BalanceTxTopUp, remark, createdByID)
+func (r *productTypeRepository) TopUpCredit(id uint, amount float64, remark string, createdByID uint, source models.BalanceTxSource) (*models.ProductType, error) {
+	return r.applyCreditDelta(id, amount, models.BalanceTxTopUp, remark, createdByID, source)
 }
 
-func (r *productTypeRepository) WithdrawCredit(id uint, amount float64, remark string, createdByID uint) (*models.ProductType, error) {
-	return r.applyCreditDelta(id, amount, models.BalanceTxWithdrawal, remark, createdByID)
+func (r *productTypeRepository) WithdrawCredit(id uint, amount float64, remark string, createdByID uint, source models.BalanceTxSource) (*models.ProductType, error) {
+	return r.applyCreditDelta(id, amount, models.BalanceTxWithdrawal, remark, createdByID, source)
 }
 
 // Delete removes a product type by ID. If scopeIDs is non-nil, the record

@@ -84,6 +84,33 @@ func requireOpenShift(repo repositories.DailyStartBalanceRepository, branchID *u
 	return nil
 }
 
+// requireNotLockedByClosedShift blocks Update when the transaction's own
+// Date falls before the most recently closed shift's ClosedAt for its
+// branch — once a shift is closed, everything dated before that close is
+// considered reconciled and locked from further edits. The check uses the
+// transaction's ORIGINAL stored date (not any new date being requested),
+// since it's asking "was this transaction already accounted for in a
+// closed shift?", not "would the new date fall in one". Deposits/
+// withdrawals with no branch set at all skip this check entirely, matching
+// requireOpenShift's behavior.
+func requireNotLockedByClosedShift(repo repositories.DailyStartBalanceRepository, branchID *uint, txDate time.Time) error {
+	if branchID == nil || *branchID == 0 {
+		return nil
+	}
+	latest, err := repo.FindLatestClosedByBranch(*branchID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil // this branch has never closed a shift — nothing is locked yet
+		}
+		return err
+	}
+	if latest.ClosedAt != nil && txDate.Before(*latest.ClosedAt) {
+		return errors.New("this transaction can't be edited — it's dated before the most recent shift close (" +
+			latest.ClosedAt.Format("2006-01-02 15:04") + ") and is considered reconciled")
+	}
+	return nil
+}
+
 func (s *depositService) Create(createdByID uint, req transactiondto.CreateRequest) (*models.Deposit, error) {
 	if err := requireOpenShift(s.dailyStartBalanceRepo, req.BranchID); err != nil {
 		return nil, err
@@ -105,19 +132,22 @@ func (s *depositService) Create(createdByID uint, req transactiondto.CreateReque
 
 	bonusAmount := req.BonusAmount
 
-	prevBal, err := s.repo.RunningBalance(req.ClientID, req.ClientProductID, 0)
-	if err != nil {
-		return nil, err
-	}
-	bal := utils.RoundFloat(prevBal+req.Amount+bonusAmount, 2)
-	os := utils.RoundFloat(bal-req.TO, 2)
+	// Bal and OS are stored exactly as given — no auto-calculation,
+	// matching how Update already treats them (a simple direct input with
+	// no cross-field side effects).
+	bal := utils.RoundFloat(req.Bal, 2)
+	os := utils.RoundFloat(req.OS, 2)
 
 	productTypeID, err := s.productTypeIDFor(req.ClientProductID)
 	if err != nil {
 		return nil, err
 	}
 	productCurrency := s.productCurrency(productTypeID)
-	creditDelta := utils.ConvertCurrency(req.Amount, currency, productCurrency)
+	// Bonus is a promotional credit funded entirely from the product's
+	// shared credit pool — it draws down credit the same way the deposit
+	// amount does, but (unlike the amount) is never real cash, so it must
+	// NOT be added to the company bank's cash top-up below.
+	creditDelta := utils.ConvertCurrency(req.Amount+bonusAmount, currency, productCurrency)
 
 	deposit := &models.Deposit{
 		TransactionNo:   txNo,
@@ -161,13 +191,21 @@ func (s *depositService) Create(createdByID uint, req transactiondto.CreateReque
 		}
 		remark := "Deposit " + txNo
 		// Deposit = client puts real money into the company's bank account.
-		if _, err := txCompanyBankRepo.TopUpCash(req.CompanyBankID, req.Amount, remark, createdByID); err != nil {
-			return err
+		// Amount can now be 0 (a bonus-only deposit) — skip the cash
+		// top-up entirely in that case, since TopUpCash rejects a
+		// non-positive amount.
+		if req.Amount > 0 {
+			if _, err := txCompanyBankRepo.TopUpCash(req.CompanyBankID, req.Amount, remark, createdByID, models.BalanceSourceTransaction); err != nil {
+				return err
+			}
 		}
-		// Deposit also draws down the product's shared credit pool — the
-		// company's extended credit is being consumed/settled by this deposit.
-		if _, err := txProductTypeRepo.WithdrawCredit(productTypeID, creditDelta, remark, createdByID); err != nil {
-			return err
+		// Deposit (plus any bonus) draws down the product's shared credit
+		// pool — skip if there's nothing to draw down (amount and bonus
+		// both 0).
+		if creditDelta > 0 {
+			if _, err := txProductTypeRepo.WithdrawCredit(productTypeID, creditDelta, remark, createdByID, models.BalanceSourceTransaction); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
@@ -194,9 +232,15 @@ func (s *depositService) Update(id uint, scopeIDs []uint, req transactiondto.Upd
 		return nil, errors.New("deposit not found")
 	}
 
+	if err := requireNotLockedByClosedShift(s.dailyStartBalanceRepo, d.BranchID, d.Date); err != nil {
+		return nil, err
+	}
+
 	oldAmount := d.Amount
+	oldBonusAmount := d.BonusAmount
 	oldCompanyBankID := d.CompanyBankID
 	newAmount := oldAmount
+	newBonusAmount := oldBonusAmount
 	newCompanyBankID := oldCompanyBankID
 
 	if req.Date != nil {
@@ -237,7 +281,8 @@ func (s *depositService) Update(id uint, scopeIDs []uint, req transactiondto.Upd
 		}
 	}
 	if req.BonusAmount != nil {
-		d.BonusAmount = *req.BonusAmount
+		newBonusAmount = *req.BonusAmount
+		d.BonusAmount = newBonusAmount
 	}
 
 	// Bal and OS are stored exactly as given - simple direct input, same as
@@ -257,32 +302,49 @@ func (s *depositService) Update(id uint, scopeIDs []uint, req transactiondto.Upd
 
 	amountChanged := newAmount != oldAmount
 	bankChanged := newCompanyBankID != oldCompanyBankID
+	bonusChanged := newBonusAmount != oldBonusAmount
 
 	err = s.db.Transaction(func(tx *gorm.DB) error {
 		txDepositRepo := repositories.NewDepositRepository(tx)
 		txCompanyBankRepo := repositories.NewCompanyBankRepository(tx)
 		txProductTypeRepo := repositories.NewProductTypeRepository(tx)
 
-		if amountChanged || bankChanged {
+		if amountChanged || bankChanged || bonusChanged {
 			// Never mutate a past ledger entry — post a reversal of the OLD
 			// effect, then apply the NEW effect as its own entry. This keeps
 			// the BalanceTransaction history an honest record of what
 			// actually happened, rather than silently editing history.
+			//
+			// Cash only ever reflects the deposit AMOUNT (never bonus, since
+			// bonus isn't real money). Credit reflects amount + bonus
+			// together, since bonus draws down the product's credit pool
+			// the same way the amount does. Both old and new amounts can
+			// now be 0 (a bonus-only deposit), so every call below is
+			// guarded — WithdrawCash/TopUpCash/TopUpCredit/WithdrawCredit
+			// all reject a non-positive amount.
 			remark := "Deposit edited " + d.TransactionNo
-			oldCreditDelta := utils.ConvertCurrency(oldAmount, d.Currency, productCurrency)
-			if _, err := txCompanyBankRepo.WithdrawCash(oldCompanyBankID, oldAmount, remark+" (reversal)", updatedByID); err != nil {
-				return err
+			oldCreditDelta := utils.ConvertCurrency(oldAmount+oldBonusAmount, d.Currency, productCurrency)
+			if oldAmount > 0 {
+				if _, err := txCompanyBankRepo.WithdrawCash(oldCompanyBankID, oldAmount, remark+" (reversal)", updatedByID, models.BalanceSourceTransaction); err != nil {
+					return err
+				}
 			}
-			if _, err := txProductTypeRepo.TopUpCredit(productTypeID, oldCreditDelta, remark+" (reversal)", updatedByID); err != nil {
-				return err
+			if oldCreditDelta > 0 {
+				if _, err := txProductTypeRepo.TopUpCredit(productTypeID, oldCreditDelta, remark+" (reversal)", updatedByID, models.BalanceSourceTransaction); err != nil {
+					return err
+				}
 			}
 
-			newCreditDelta := utils.ConvertCurrency(newAmount, d.Currency, productCurrency)
-			if _, err := txCompanyBankRepo.TopUpCash(newCompanyBankID, newAmount, remark, updatedByID); err != nil {
-				return err
+			newCreditDelta := utils.ConvertCurrency(newAmount+newBonusAmount, d.Currency, productCurrency)
+			if newAmount > 0 {
+				if _, err := txCompanyBankRepo.TopUpCash(newCompanyBankID, newAmount, remark, updatedByID, models.BalanceSourceTransaction); err != nil {
+					return err
+				}
 			}
-			if _, err := txProductTypeRepo.WithdrawCredit(productTypeID, newCreditDelta, remark, updatedByID); err != nil {
-				return err
+			if newCreditDelta > 0 {
+				if _, err := txProductTypeRepo.WithdrawCredit(productTypeID, newCreditDelta, remark, updatedByID, models.BalanceSourceTransaction); err != nil {
+					return err
+				}
 			}
 		}
 		return txDepositRepo.Update(d)
@@ -304,7 +366,7 @@ func (s *depositService) Delete(id uint, scopeIDs []uint, deletedByID uint) erro
 		return err
 	}
 	productCurrency := s.productCurrency(productTypeID)
-	creditDelta := utils.ConvertCurrency(d.Amount, d.Currency, productCurrency)
+	creditDelta := utils.ConvertCurrency(d.Amount+d.BonusAmount, d.Currency, productCurrency)
 
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		txDepositRepo := repositories.NewDepositRepository(tx)
@@ -312,11 +374,15 @@ func (s *depositService) Delete(id uint, scopeIDs []uint, deletedByID uint) erro
 		txProductTypeRepo := repositories.NewProductTypeRepository(tx)
 
 		remark := "Deposit deleted " + d.TransactionNo
-		if _, err := txCompanyBankRepo.WithdrawCash(d.CompanyBankID, d.Amount, remark, deletedByID); err != nil {
-			return err
+		if d.Amount > 0 {
+			if _, err := txCompanyBankRepo.WithdrawCash(d.CompanyBankID, d.Amount, remark, deletedByID, models.BalanceSourceTransaction); err != nil {
+				return err
+			}
 		}
-		if _, err := txProductTypeRepo.TopUpCredit(productTypeID, creditDelta, remark, deletedByID); err != nil {
-			return err
+		if creditDelta > 0 {
+			if _, err := txProductTypeRepo.TopUpCredit(productTypeID, creditDelta, remark, deletedByID, models.BalanceSourceTransaction); err != nil {
+				return err
+			}
 		}
 		return txDepositRepo.Delete(id)
 	})

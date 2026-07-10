@@ -21,6 +21,11 @@ type CompanyBankService interface {
 	Delete(id uint, scopeIDs []uint) error
 	TopUpCash(id uint, scopeIDs []uint, amount float64, remark string, createdByID uint) (*models.CompanyBank, error)
 	WithdrawCash(id uint, scopeIDs []uint, amount float64, remark string, createdByID uint) (*models.CompanyBank, error)
+	// AdjustCash applies a manual correction — direction is "addition" or
+	// "subtraction" — recorded under BalanceSourceAdjustment so it's
+	// always clearly distinguishable from a routine Top Up/Withdraw in
+	// the ledger.
+	AdjustCash(id uint, scopeIDs []uint, direction string, amount float64, remark string, createdByID uint) (*models.CompanyBank, error)
 }
 
 type companyBankService struct {
@@ -91,7 +96,11 @@ func (s *companyBankService) TopUpCash(id uint, scopeIDs []uint, amount float64,
 	if _, err := s.repo.FindByID(id, scopeIDs); err != nil {
 		return nil, errors.New("company bank not found")
 	}
-	return s.repo.TopUpCash(id, amount, remark, createdByID)
+	// This service method is only ever reached via the direct admin Top
+	// Up/Withdraw endpoint (Configuration module) — never as a side effect
+	// of a client Deposit/Withdrawal, which calls the repository directly
+	// from deposit_service.go/withdrawal_service.go instead.
+	return s.repo.TopUpCash(id, amount, remark, createdByID, models.BalanceSourceConfiguration)
 }
 
 func (s *companyBankService) WithdrawCash(id uint, scopeIDs []uint, amount float64, remark string, createdByID uint) (*models.CompanyBank, error) {
@@ -101,7 +110,24 @@ func (s *companyBankService) WithdrawCash(id uint, scopeIDs []uint, amount float
 	if _, err := s.repo.FindByID(id, scopeIDs); err != nil {
 		return nil, errors.New("company bank not found")
 	}
-	return s.repo.WithdrawCash(id, amount, remark, createdByID)
+	return s.repo.WithdrawCash(id, amount, remark, createdByID, models.BalanceSourceConfiguration)
+}
+
+func (s *companyBankService) AdjustCash(id uint, scopeIDs []uint, direction string, amount float64, remark string, createdByID uint) (*models.CompanyBank, error) {
+	if amount <= 0 {
+		return nil, errors.New("amount must be positive")
+	}
+	if _, err := s.repo.FindByID(id, scopeIDs); err != nil {
+		return nil, errors.New("company bank not found")
+	}
+	switch direction {
+	case "addition":
+		return s.repo.TopUpCash(id, amount, remark, createdByID, models.BalanceSourceAdjustment)
+	case "subtraction":
+		return s.repo.WithdrawCash(id, amount, remark, createdByID, models.BalanceSourceAdjustment)
+	default:
+		return nil, errors.New("direction must be \"addition\" or \"subtraction\"")
+	}
 }
 
 func (s *companyBankService) Delete(id uint, scopeIDs []uint) error {

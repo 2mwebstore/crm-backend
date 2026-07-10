@@ -156,3 +156,30 @@ func (ctrl *CompanyBankController) WithdrawCash(c *gin.Context) {
 	}
 	utils.OK(c, "cash withdrawn", item)
 }
+
+// Adjust godoc — POST /company-banks/:id/adjust  { "direction": "addition"|"subtraction", "amount": 25.00, "remark": "..." }
+// A manual correction, distinct from the routine TopUpCash/WithdrawCash
+// above — recorded in the ledger under models.BalanceSourceAdjustment so
+// it's always clearly distinguishable from a normal top-up/withdrawal.
+func (ctrl *CompanyBankController) Adjust(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		utils.BadRequest(c, "invalid id")
+		return
+	}
+	var req struct {
+		Direction string  `json:"direction" binding:"required,oneof=addition subtraction"`
+		Amount    float64 `json:"amount"`
+		Remark    string  `json:"remark"`
+	}
+	if err := utils.BindJSON(c, &req); err != nil {
+		utils.BadRequest(c, err.Error())
+		return
+	}
+	item, err := ctrl.svc.AdjustCash(uint(id), ctrl.scope(c), req.Direction, req.Amount, req.Remark, middlewares.GetUserID(c))
+	if err != nil {
+		utils.BadRequest(c, err.Error())
+		return
+	}
+	utils.OK(c, "cash adjusted", item)
+}

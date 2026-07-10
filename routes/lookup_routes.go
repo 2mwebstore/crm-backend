@@ -26,6 +26,8 @@ func RegisterLookupRoutes(
 	// this, or this without record CRUD, or both.
 	companyBankBalance := middlewares.RequirePermission(userRepo, models.PermCompanyBankTopup)
 	productTypeBalance := middlewares.RequirePermission(userRepo, models.PermProductTypeTopup)
+	companyBankAdjustment := middlewares.RequirePermission(userRepo, models.PermCompanyBankAdjustment)
+	productTypeAdjustment := middlewares.RequirePermission(userRepo, models.PermProductTypeAdjustment)
 
 	// Per-entity View/Create/Edit/Delete permissions — each table is fully
 	// self-contained now (no more blanket lookup.view/lookup.manage/
@@ -94,6 +96,7 @@ func RegisterLookupRoutes(
 		cb.DELETE("/:id", companyBankDelete, CompanybankCtrl.Delete)
 		cb.POST("/:id/topup", companyBankBalance, CompanybankCtrl.TopUpCash)
 		cb.POST("/:id/withdraw", companyBankBalance, CompanybankCtrl.WithdrawCash)
+		cb.POST("/:id/adjust", companyBankAdjustment, CompanybankCtrl.Adjust)
 	}
 
 	// ── Product Types ──────────────────────────────────────────────────────
@@ -107,6 +110,7 @@ func RegisterLookupRoutes(
 		pt.DELETE("/:id", productTypeDelete, productTypeCtrl.Delete)
 		pt.POST("/:id/topup", productTypeBalance, productTypeCtrl.TopUpCredit)
 		pt.POST("/:id/withdraw", productTypeBalance, productTypeCtrl.WithdrawCredit)
+		pt.POST("/:id/adjust", productTypeAdjustment, productTypeCtrl.Adjust)
 	}
 
 	// ── Bonus Option Types ─────────────────────────────────────────────────

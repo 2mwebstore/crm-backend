@@ -20,9 +20,13 @@ type CompanyBankRepository interface {
 	// TopUpCash and WithdrawCash apply an atomic, row-locked balance change
 	// and write a matching BalanceTransaction ledger row in the same DB
 	// transaction, so the audit trail and the actual balance can never
-	// drift apart even under concurrent requests.
-	TopUpCash(id uint, amount float64, remark string, createdByID uint) (*models.CompanyBank, error)
-	WithdrawCash(id uint, amount float64, remark string, createdByID uint) (*models.CompanyBank, error)
+	// drift apart even under concurrent requests. source records WHERE
+	// this call came from (models.BalanceSourceTransaction for a client
+	// Deposit/Withdrawal side effect, models.BalanceSourceConfiguration
+	// for a direct manual admin action) — explicit at the call site rather
+	// than inferred later from the remark text.
+	TopUpCash(id uint, amount float64, remark string, createdByID uint, source models.BalanceTxSource) (*models.CompanyBank, error)
+	WithdrawCash(id uint, amount float64, remark string, createdByID uint, source models.BalanceTxSource) (*models.CompanyBank, error)
 }
 
 type companyBankRepository struct{ db *gorm.DB }
@@ -81,7 +85,7 @@ func (r *companyBankRepository) Update(x *models.CompanyBank) error {
 // means a second concurrent top-up/withdrawal on the same account has to
 // wait for this one to commit, so old_amount always reflects a real
 // pre-transaction state — no lost updates, no ledger drift.
-func (r *companyBankRepository) applyCashDelta(id uint, amount float64, txType models.BalanceTxType, remark string, createdByID uint) (*models.CompanyBank, error) {
+func (r *companyBankRepository) applyCashDelta(id uint, amount float64, txType models.BalanceTxType, remark string, createdByID uint, source models.BalanceTxSource) (*models.CompanyBank, error) {
 	if amount <= 0 {
 		return nil, errors.New("amount must be positive")
 	}
@@ -111,6 +115,7 @@ func (r *companyBankRepository) applyCashDelta(id uint, amount float64, txType m
 			EntityID:    id,
 			Field:       "cash",
 			Type:        txType,
+			Source:      source,
 			OldAmount:   oldAmount,
 			Amount:      amount,
 			NewAmount:   newAmount,
@@ -125,12 +130,12 @@ func (r *companyBankRepository) applyCashDelta(id uint, amount float64, txType m
 	return r.FindByID(id, nil)
 }
 
-func (r *companyBankRepository) TopUpCash(id uint, amount float64, remark string, createdByID uint) (*models.CompanyBank, error) {
-	return r.applyCashDelta(id, amount, models.BalanceTxTopUp, remark, createdByID)
+func (r *companyBankRepository) TopUpCash(id uint, amount float64, remark string, createdByID uint, source models.BalanceTxSource) (*models.CompanyBank, error) {
+	return r.applyCashDelta(id, amount, models.BalanceTxTopUp, remark, createdByID, source)
 }
 
-func (r *companyBankRepository) WithdrawCash(id uint, amount float64, remark string, createdByID uint) (*models.CompanyBank, error) {
-	return r.applyCashDelta(id, amount, models.BalanceTxWithdrawal, remark, createdByID)
+func (r *companyBankRepository) WithdrawCash(id uint, amount float64, remark string, createdByID uint, source models.BalanceTxSource) (*models.CompanyBank, error) {
+	return r.applyCashDelta(id, amount, models.BalanceTxWithdrawal, remark, createdByID, source)
 }
 
 // Delete removes a company bank account by ID. If scopeIDs is non-nil, the

@@ -6,7 +6,7 @@ import (
 )
 
 type BalanceTransactionService interface {
-	ListByEntity(entityType models.BalanceEntityType, entityID uint, txType models.BalanceTxType, page, pageSize int) ([]models.BalanceTransaction, int64, error)
+	ListByEntity(entityType models.BalanceEntityType, entityID uint, filter repositories.BalanceTransactionFilter, page, pageSize int) ([]models.BalanceTransaction, int64, error)
 }
 
 type balanceTransactionService struct {
@@ -17,6 +17,6 @@ func NewBalanceTransactionService(repo repositories.BalanceTransactionRepository
 	return &balanceTransactionService{repo}
 }
 
-func (s *balanceTransactionService) ListByEntity(entityType models.BalanceEntityType, entityID uint, txType models.BalanceTxType, page, pageSize int) ([]models.BalanceTransaction, int64, error) {
-	return s.repo.ListByEntity(entityType, entityID, txType, page, pageSize)
+func (s *balanceTransactionService) ListByEntity(entityType models.BalanceEntityType, entityID uint, filter repositories.BalanceTransactionFilter, page, pageSize int) ([]models.BalanceTransaction, int64, error) {
+	return s.repo.ListByEntity(entityType, entityID, filter, page, pageSize)
 }
