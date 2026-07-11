@@ -2,6 +2,7 @@ package services
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"gorm.io/gorm"
@@ -28,6 +29,7 @@ type depositService struct {
 	companyBankRepo       repositories.CompanyBankRepository
 	productTypeRepo       repositories.ProductTypeRepository
 	dailyStartBalanceRepo repositories.DailyStartBalanceRepository
+	branchRepo            repositories.BranchRepository
 	db                    *gorm.DB
 }
 
@@ -37,9 +39,10 @@ func NewDepositService(
 	companyBankRepo repositories.CompanyBankRepository,
 	productTypeRepo repositories.ProductTypeRepository,
 	dailyStartBalanceRepo repositories.DailyStartBalanceRepository,
+	branchRepo repositories.BranchRepository,
 	db *gorm.DB,
 ) DepositService {
-	return &depositService{repo, clientRepo, companyBankRepo, productTypeRepo, dailyStartBalanceRepo, db}
+	return &depositService{repo, clientRepo, companyBankRepo, productTypeRepo, dailyStartBalanceRepo, branchRepo, db}
 }
 
 // productTypeIDFor resolves a client_product_id (a specific client's
@@ -71,6 +74,30 @@ func (s *depositService) productCurrency(productTypeID uint) string {
 // deposit/withdrawal can be processed for that branch. Deposits/
 // withdrawals with no branch set at all skip this check entirely, since
 // there's no branch context to look a shift up against.
+// notifyTelegramForBranch looks up the branch's Telegram config and, if
+// set, fires off a notification asynchronously (never blocks the caller,
+// never fails the request that triggered it — see utils.SendTelegramMessage).
+// isWithdrawal picks which forum topic within the group to post to —
+// Deposit and Withdrawal commonly use different topics in the same group —
+// via branch.TelegramDepositTopicID/TelegramWithdrawalTopicID; either can
+// be nil, which posts to the group's General topic instead. Deposits/
+// withdrawals with no branch set at all skip this entirely, same as
+// requireOpenShift.
+func notifyTelegramForBranch(branchRepo repositories.BranchRepository, branchID *uint, isWithdrawal bool, message string) {
+	if branchID == nil || *branchID == 0 {
+		return
+	}
+	branch, err := branchRepo.FindByID(*branchID)
+	if err != nil || branch.TelegramBotToken == "" || branch.TelegramChatID == "" {
+		return
+	}
+	topicID := branch.TelegramDepositTopicID
+	if isWithdrawal {
+		topicID = branch.TelegramWithdrawalTopicID
+	}
+	go utils.SendTelegramMessage(branch.TelegramBotToken, branch.TelegramChatID, topicID, message)
+}
+
 func requireOpenShift(repo repositories.DailyStartBalanceRepository, branchID *uint) error {
 	if branchID == nil || *branchID == 0 {
 		return nil
@@ -217,7 +244,30 @@ func (s *depositService) Create(createdByID uint, req transactiondto.CreateReque
 	if err != nil {
 		return nil, err
 	}
-	return s.repo.FindByIDUnsafe(deposit.ID)
+
+	result, err := s.repo.FindByIDUnsafe(deposit.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	clientCode := "—"
+	if result.Client != nil {
+		clientCode = result.Client.Code
+	}
+	bankName := "—"
+	if result.CompanyBank != nil {
+		bankName = result.CompanyBank.AccountName
+	}
+	createdByName := "—"
+	if result.CreatedBy != nil {
+		createdByName = result.CreatedBy.Name
+	}
+	notifyTelegramForBranch(s.branchRepo, req.BranchID, false, fmt.Sprintf(
+		"💰 <b>Deposit</b>\nClient: %s\nBank: %s\nTxn: %s\nAmount: %.2f %s\nBonus: %.2f %s\nBy: %s",
+		clientCode, bankName, txNo, req.Amount, currency, bonusAmount, currency, createdByName,
+	))
+
+	return result, nil
 }
 
 func (s *depositService) GetByID(id uint, scopeIDs []uint) (*models.Deposit, error) {

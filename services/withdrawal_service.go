@@ -2,6 +2,7 @@ package services
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"gorm.io/gorm"
@@ -28,6 +29,7 @@ type withdrawalService struct {
 	companyBankRepo       repositories.CompanyBankRepository
 	productTypeRepo       repositories.ProductTypeRepository
 	dailyStartBalanceRepo repositories.DailyStartBalanceRepository
+	branchRepo            repositories.BranchRepository
 	db                    *gorm.DB
 }
 
@@ -37,9 +39,10 @@ func NewWithdrawalService(
 	companyBankRepo repositories.CompanyBankRepository,
 	productTypeRepo repositories.ProductTypeRepository,
 	dailyStartBalanceRepo repositories.DailyStartBalanceRepository,
+	branchRepo repositories.BranchRepository,
 	db *gorm.DB,
 ) WithdrawalService {
-	return &withdrawalService{repo, clientRepo, companyBankRepo, productTypeRepo, dailyStartBalanceRepo, db}
+	return &withdrawalService{repo, clientRepo, companyBankRepo, productTypeRepo, dailyStartBalanceRepo, branchRepo, db}
 }
 
 // productTypeIDFor resolves a client_product_id to its parent ProductType ID
@@ -153,7 +156,30 @@ func (s *withdrawalService) Create(createdByID uint, req transactiondto.CreateRe
 	if err != nil {
 		return nil, err
 	}
-	return s.repo.FindByIDUnsafe(withdrawal.ID)
+
+	result, err := s.repo.FindByIDUnsafe(withdrawal.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	clientCode := "—"
+	if result.Client != nil {
+		clientCode = result.Client.Code
+	}
+	bankName := "—"
+	if result.CompanyBank != nil {
+		bankName = result.CompanyBank.AccountName
+	}
+	createdByName := "—"
+	if result.CreatedBy != nil {
+		createdByName = result.CreatedBy.Name
+	}
+	notifyTelegramForBranch(s.branchRepo, req.BranchID, true, fmt.Sprintf(
+		"💸 <b>Withdrawal</b>\nClient: %s\nBank: %s\nTxn: %s\nAmount: %.2f %s\nBy: %s",
+		clientCode, bankName, txNo, req.Amount, currency, createdByName,
+	))
+
+	return result, nil
 }
 
 func (s *withdrawalService) GetByID(id uint, scopeIDs []uint) (*models.Withdrawal, error) {

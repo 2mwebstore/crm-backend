@@ -41,15 +41,27 @@ func (ctrl *BranchController) GetByID(c *gin.Context) {
 
 func (ctrl *BranchController) Create(c *gin.Context) {
 	var body struct {
-		Name        string `json:"name" binding:"required"`
-		Code        string `json:"code" binding:"required"`
-		Description string `json:"description"`
+		Name                      string `json:"name" binding:"required"`
+		Code                      string `json:"code" binding:"required"`
+		Description               string `json:"description"`
+		TelegramBotToken          string `json:"telegram_bot_token"`
+		TelegramChatID            string `json:"telegram_chat_id"`
+		TelegramDepositTopicID    *int   `json:"telegram_deposit_topic_id"`
+		TelegramWithdrawalTopicID *int   `json:"telegram_withdrawal_topic_id"`
 	}
 	if err := utils.BindJSON(c, &body); err != nil {
 		utils.BadRequest(c, err.Error())
 		return
 	}
-	item, err := ctrl.svc.Create(middlewares.GetUserID(c), body.Name, body.Code, body.Description)
+	item, err := ctrl.svc.Create(middlewares.GetUserID(c), services.BranchInput{
+		Name:                      body.Name,
+		Code:                      body.Code,
+		Description:               body.Description,
+		TelegramBotToken:          body.TelegramBotToken,
+		TelegramChatID:            body.TelegramChatID,
+		TelegramDepositTopicID:    body.TelegramDepositTopicID,
+		TelegramWithdrawalTopicID: body.TelegramWithdrawalTopicID,
+	})
 	if err != nil {
 		utils.Conflict(c, err.Error())
 		return
@@ -60,16 +72,29 @@ func (ctrl *BranchController) Create(c *gin.Context) {
 func (ctrl *BranchController) Update(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var body struct {
-		Name        string `json:"name"`
-		Code        string `json:"code"`
-		Description string `json:"description"`
-		IsActive    bool   `json:"is_active"`
+		Name                      string `json:"name"`
+		Code                      string `json:"code"`
+		Description               string `json:"description"`
+		IsActive                  bool   `json:"is_active"`
+		TelegramBotToken          string `json:"telegram_bot_token"`
+		TelegramChatID            string `json:"telegram_chat_id"`
+		TelegramDepositTopicID    *int   `json:"telegram_deposit_topic_id"`
+		TelegramWithdrawalTopicID *int   `json:"telegram_withdrawal_topic_id"`
 	}
 	if err := utils.BindJSON(c, &body); err != nil {
 		utils.BadRequest(c, err.Error())
 		return
 	}
-	item, err := ctrl.svc.Update(uint(id), body.Name, body.Code, body.Description, body.IsActive)
+	item, err := ctrl.svc.Update(uint(id), services.BranchInput{
+		Name:                      body.Name,
+		Code:                      body.Code,
+		Description:               body.Description,
+		IsActive:                  body.IsActive,
+		TelegramBotToken:          body.TelegramBotToken,
+		TelegramChatID:            body.TelegramChatID,
+		TelegramDepositTopicID:    body.TelegramDepositTopicID,
+		TelegramWithdrawalTopicID: body.TelegramWithdrawalTopicID,
+	})
 	if err != nil {
 		utils.BadRequest(c, err.Error())
 		return
