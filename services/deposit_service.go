@@ -250,9 +250,11 @@ func (s *depositService) Create(createdByID uint, req transactiondto.CreateReque
 		return nil, err
 	}
 
-	clientCode := "—"
+	clientID := "—"
+	clientName := "—"
 	if result.Client != nil {
-		clientCode = result.Client.Name + " - " + result.Client.Code
+		clientID = result.Client.Code
+		clientName = result.Client.Name
 	}
 	bankName := "—"
 	if result.CompanyBank != nil {
@@ -275,8 +277,8 @@ func (s *depositService) Create(createdByID uint, req transactiondto.CreateReque
 		createdByName = result.CreatedBy.Name
 	}
 	notifyTelegramForBranch(s.branchRepo, req.BranchID, false, fmt.Sprintf(
-		"💰 <b>Deposit</b>\nClient: %s\nClient Bank: %s\nCompany Bank: %s\nProduct: %s\nPlay: %.2f\nTxn: %s\nAmount: %.2f %s\nBonus: %.2f %s\nBy: %s",
-		clientCode, clientBankName, bankName, productName, req.Play, txNo, req.Amount, currency, bonusAmount, currency, createdByName,
+		"💰 <b>Deposit</b>\nTxn: %s\nID : %s\nClient Name : %s\n\nClient Bank: %s\n\nCompany Bank: %s\n\nProduct: %s\n\nAmount: %.2f %s\n\nBonus: %.2f %s\n\nBy: %s",
+		txNo, clientID, clientName, clientBankName, bankName, productName, req.Amount, currency, bonusAmount, currency, createdByName,
 	))
 
 	return result, nil
