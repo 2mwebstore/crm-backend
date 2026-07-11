@@ -29,11 +29,12 @@ type ProductTypeService interface {
 }
 
 type productTypeService struct {
-	repo repositories.ProductTypeRepository
+	repo                  repositories.ProductTypeRepository
+	dailyStartBalanceRepo repositories.DailyStartBalanceRepository
 }
 
-func NewProductTypeService(repo repositories.ProductTypeRepository) ProductTypeService {
-	return &productTypeService{repo}
+func NewProductTypeService(repo repositories.ProductTypeRepository, dailyStartBalanceRepo repositories.DailyStartBalanceRepository) ProductTypeService {
+	return &productTypeService{repo, dailyStartBalanceRepo}
 }
 
 func (s *productTypeService) Create(createdByID uint, x *models.ProductType) (*models.ProductType, error) {
@@ -87,8 +88,12 @@ func (s *productTypeService) TopUpCredit(id uint, scopeIDs []uint, amount float6
 	if amount <= 0 {
 		return nil, errors.New("amount must be positive")
 	}
-	if _, err := s.repo.FindByID(id, scopeIDs); err != nil {
+	pt, err := s.repo.FindByID(id, scopeIDs)
+	if err != nil {
 		return nil, errors.New("product type not found")
+	}
+	if err := requireOpenShift(s.dailyStartBalanceRepo, pt.BranchID); err != nil {
+		return nil, err
 	}
 	// This service method is only ever reached via the direct admin Top
 	// Up/Withdraw endpoint (Configuration module) — never as a side effect
@@ -101,8 +106,12 @@ func (s *productTypeService) WithdrawCredit(id uint, scopeIDs []uint, amount flo
 	if amount <= 0 {
 		return nil, errors.New("amount must be positive")
 	}
-	if _, err := s.repo.FindByID(id, scopeIDs); err != nil {
+	pt, err := s.repo.FindByID(id, scopeIDs)
+	if err != nil {
 		return nil, errors.New("product type not found")
+	}
+	if err := requireOpenShift(s.dailyStartBalanceRepo, pt.BranchID); err != nil {
+		return nil, err
 	}
 	return s.repo.WithdrawCredit(id, amount, remark, createdByID, models.BalanceSourceConfiguration)
 }
@@ -111,8 +120,12 @@ func (s *productTypeService) AdjustCredit(id uint, scopeIDs []uint, direction st
 	if amount <= 0 {
 		return nil, errors.New("amount must be positive")
 	}
-	if _, err := s.repo.FindByID(id, scopeIDs); err != nil {
+	pt, err := s.repo.FindByID(id, scopeIDs)
+	if err != nil {
 		return nil, errors.New("product type not found")
+	}
+	if err := requireOpenShift(s.dailyStartBalanceRepo, pt.BranchID); err != nil {
+		return nil, err
 	}
 	switch direction {
 	case "addition":

@@ -29,11 +29,12 @@ type CompanyBankService interface {
 }
 
 type companyBankService struct {
-	repo repositories.CompanyBankRepository
+	repo                  repositories.CompanyBankRepository
+	dailyStartBalanceRepo repositories.DailyStartBalanceRepository
 }
 
-func NewCompanyBankService(repo repositories.CompanyBankRepository) CompanyBankService {
-	return &companyBankService{repo}
+func NewCompanyBankService(repo repositories.CompanyBankRepository, dailyStartBalanceRepo repositories.DailyStartBalanceRepository) CompanyBankService {
+	return &companyBankService{repo, dailyStartBalanceRepo}
 }
 
 func (s *companyBankService) Create(createdByID uint, x *models.CompanyBank) (*models.CompanyBank, error) {
@@ -93,8 +94,12 @@ func (s *companyBankService) TopUpCash(id uint, scopeIDs []uint, amount float64,
 	}
 	// Scope check first: confirms the caller can even see this account
 	// before we touch the balance/ledger.
-	if _, err := s.repo.FindByID(id, scopeIDs); err != nil {
+	cb, err := s.repo.FindByID(id, scopeIDs)
+	if err != nil {
 		return nil, errors.New("company bank not found")
+	}
+	if err := requireOpenShift(s.dailyStartBalanceRepo, cb.BranchID); err != nil {
+		return nil, err
 	}
 	// This service method is only ever reached via the direct admin Top
 	// Up/Withdraw endpoint (Configuration module) — never as a side effect
@@ -107,8 +112,12 @@ func (s *companyBankService) WithdrawCash(id uint, scopeIDs []uint, amount float
 	if amount <= 0 {
 		return nil, errors.New("amount must be positive")
 	}
-	if _, err := s.repo.FindByID(id, scopeIDs); err != nil {
+	cb, err := s.repo.FindByID(id, scopeIDs)
+	if err != nil {
 		return nil, errors.New("company bank not found")
+	}
+	if err := requireOpenShift(s.dailyStartBalanceRepo, cb.BranchID); err != nil {
+		return nil, err
 	}
 	return s.repo.WithdrawCash(id, amount, remark, createdByID, models.BalanceSourceConfiguration)
 }
@@ -117,8 +126,12 @@ func (s *companyBankService) AdjustCash(id uint, scopeIDs []uint, direction stri
 	if amount <= 0 {
 		return nil, errors.New("amount must be positive")
 	}
-	if _, err := s.repo.FindByID(id, scopeIDs); err != nil {
+	cb, err := s.repo.FindByID(id, scopeIDs)
+	if err != nil {
 		return nil, errors.New("company bank not found")
+	}
+	if err := requireOpenShift(s.dailyStartBalanceRepo, cb.BranchID); err != nil {
+		return nil, err
 	}
 	switch direction {
 	case "addition":
