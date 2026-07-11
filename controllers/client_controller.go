@@ -98,7 +98,7 @@ func (ctrl *ClientController) Create(c *gin.Context) {
 	}
 	client, err := ctrl.svc.Create(ctrl.callerID(c), req)
 	if err != nil {
-		utils.InternalError(c, err)
+		utils.BadRequest(c, err.Error())
 		return
 	}
 	utils.Created(c, "client created", client)

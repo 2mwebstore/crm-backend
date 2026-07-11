@@ -93,6 +93,9 @@ func (s *clientService) Create(createdByID uint, req clientdto.CreateClientReque
 		}
 	}
 	if len(req.Products) > 0 {
+		if err := s.checkDuplicateAccountIDs(req.Products); err != nil {
+			return nil, err
+		}
 		if err := s.repo.CreateProducts(buildClientProducts(client.ID, req.Products)); err != nil {
 			return nil, err
 		}
@@ -174,6 +177,9 @@ func (s *clientService) Update(id uint, scopeIDs []uint, req clientdto.UpdateCli
 			return nil, err
 		}
 		if len(req.Products) > 0 {
+			if err := s.checkDuplicateAccountIDs(req.Products); err != nil {
+				return nil, err
+			}
 			if err := s.repo.CreateProducts(buildClientProducts(id, req.Products)); err != nil {
 				return nil, err
 			}
@@ -251,6 +257,13 @@ func (s *clientService) AddProduct(clientID uint, scopeIDs []uint, req clientdto
 	if _, err := s.repo.FindByID(clientID, scopeIDs); err != nil {
 		return nil, errors.New("client not found")
 	}
+	// account_id has a DB-level uniqueIndex — checking first gives a clean
+	// error message instead of a raw MySQL "Duplicate entry" surfacing
+	// straight from CreateProduct below.
+	var existing models.ClientProduct
+	if err := s.db.Where("account_id = ?", req.AccountID).First(&existing).Error; err == nil {
+		return nil, errors.New("account ID already exists: " + req.AccountID)
+	}
 	p := &models.ClientProduct{ClientID: clientID, ProductTypeID: req.ProductTypeID, AccountID: req.AccountID, IsActive: req.IsActive, SortOrder: req.SortOrder}
 	// Create via the singular method (not CreateProducts) so GORM scans the
 	// auto-increment ID back into p itself — CreateProducts takes the slice
@@ -269,6 +282,14 @@ func (s *clientService) UpdateProduct(clientID, productID uint, scopeIDs []uint,
 	p, err := s.repo.FindProduct(productID)
 	if err != nil || p.ClientID != clientID {
 		return nil, errors.New("product record not found")
+	}
+	// Same duplicate pre-check as AddProduct — only matters if the account
+	// ID is actually changing, and excludes this row itself from the check.
+	if req.AccountID != p.AccountID {
+		var existing models.ClientProduct
+		if err := s.db.Where("account_id = ? AND id != ?", req.AccountID, productID).First(&existing).Error; err == nil {
+			return nil, errors.New("account ID already exists: " + req.AccountID)
+		}
 	}
 	p.ProductTypeID = req.ProductTypeID
 	p.AccountID = req.AccountID
@@ -361,6 +382,28 @@ func buildClientBanks(clientID uint, inputs []clientdto.BankInput) []models.Clie
 		banks = append(banks, models.ClientBank{ClientID: clientID, BankTypeID: b.BankTypeID, AccountNo: b.AccountNo, AccountName: b.AccountName, IsActive: b.IsActive, SortOrder: b.SortOrder})
 	}
 	return banks
+}
+
+// checkDuplicateAccountIDs pre-validates a batch of ProductInput against the
+// account_id uniqueIndex — both duplicates within the batch itself, and
+// against what's already in the DB — so bulk product creation gets the
+// same friendly error as the single-product AddProduct path, instead of a
+// raw MySQL "Duplicate entry" surfacing straight from the batch insert.
+func (s *clientService) checkDuplicateAccountIDs(inputs []clientdto.ProductInput) error {
+	seen := map[string]bool{}
+	ids := make([]string, 0, len(inputs))
+	for _, p := range inputs {
+		if seen[p.AccountID] {
+			return errors.New("account ID already exists: " + p.AccountID)
+		}
+		seen[p.AccountID] = true
+		ids = append(ids, p.AccountID)
+	}
+	var existing models.ClientProduct
+	if err := s.db.Where("account_id IN ?", ids).First(&existing).Error; err == nil {
+		return errors.New("account ID already exists: " + existing.AccountID)
+	}
+	return nil
 }
 
 func buildClientProducts(clientID uint, inputs []clientdto.ProductInput) []models.ClientProduct {
