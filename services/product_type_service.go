@@ -99,7 +99,7 @@ func (s *productTypeService) TopUpCredit(id uint, scopeIDs []uint, amount float6
 	// Up/Withdraw endpoint (Configuration module) — never as a side effect
 	// of a client Deposit/Withdrawal, which calls the repository directly
 	// from deposit_service.go/withdrawal_service.go instead.
-	return s.repo.TopUpCredit(id, amount, remark, createdByID, models.BalanceSourceConfiguration)
+	return s.repo.TopUpCredit(id, amount, remark, createdByID, models.BalanceSourceConfiguration, 0)
 }
 
 func (s *productTypeService) WithdrawCredit(id uint, scopeIDs []uint, amount float64, remark string, createdByID uint) (*models.ProductType, error) {
@@ -113,7 +113,7 @@ func (s *productTypeService) WithdrawCredit(id uint, scopeIDs []uint, amount flo
 	if err := requireOpenShift(s.dailyStartBalanceRepo, pt.BranchID); err != nil {
 		return nil, err
 	}
-	return s.repo.WithdrawCredit(id, amount, remark, createdByID, models.BalanceSourceConfiguration)
+	return s.repo.WithdrawCredit(id, amount, remark, createdByID, models.BalanceSourceConfiguration, 0)
 }
 
 func (s *productTypeService) AdjustCredit(id uint, scopeIDs []uint, direction string, amount float64, remark string, createdByID uint) (*models.ProductType, error) {
@@ -129,9 +129,9 @@ func (s *productTypeService) AdjustCredit(id uint, scopeIDs []uint, direction st
 	}
 	switch direction {
 	case "addition":
-		return s.repo.TopUpCredit(id, amount, remark, createdByID, models.BalanceSourceAdjustment)
+		return s.repo.TopUpCredit(id, amount, remark, createdByID, models.BalanceSourceAdjustment, 0)
 	case "subtraction":
-		return s.repo.WithdrawCredit(id, amount, remark, createdByID, models.BalanceSourceAdjustment)
+		return s.repo.WithdrawCredit(id, amount, remark, createdByID, models.BalanceSourceAdjustment, 0)
 	default:
 		return nil, errors.New("direction must be \"addition\" or \"subtraction\"")
 	}

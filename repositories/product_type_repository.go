@@ -26,8 +26,8 @@ type ProductTypeRepository interface {
 	// effect, models.BalanceSourceConfiguration for a direct manual admin
 	// action) — explicit at the call site rather than inferred later from
 	// the remark text.
-	TopUpCredit(id uint, amount float64, remark string, createdByID uint, source models.BalanceTxSource) (*models.ProductType, error)
-	WithdrawCredit(id uint, amount float64, remark string, createdByID uint, source models.BalanceTxSource) (*models.ProductType, error)
+	TopUpCredit(id uint, amount float64, remark string, createdByID uint, source models.BalanceTxSource, bonusAmount float64) (*models.ProductType, error)
+	WithdrawCredit(id uint, amount float64, remark string, createdByID uint, source models.BalanceTxSource, bonusAmount float64) (*models.ProductType, error)
 }
 
 type productTypeRepository struct{ db *gorm.DB }
@@ -81,7 +81,11 @@ func (r *productTypeRepository) Update(x *models.ProductType) error {
 // locked with SELECT ... FOR UPDATE for the duration of the transaction, so
 // concurrent top-ups/withdrawals on the same product serialize instead of
 // racing, and the ledger row's old/new amounts always reflect real states.
-func (r *productTypeRepository) applyCreditDelta(id uint, amount float64, txType models.BalanceTxType, remark string, createdByID uint, source models.BalanceTxSource) (*models.ProductType, error) {
+// bonusAmount is purely descriptive metadata recorded on the ledger entry
+// (how much of amount was a Deposit's bonus) — it does NOT get added on
+// top of amount here, since amount already includes it when relevant
+// (callers combine principal+bonus into amount before calling this).
+func (r *productTypeRepository) applyCreditDelta(id uint, amount float64, txType models.BalanceTxType, remark string, createdByID uint, source models.BalanceTxSource, bonusAmount float64) (*models.ProductType, error) {
 	if amount <= 0 {
 		return nil, errors.New("amount must be positive")
 	}
@@ -114,6 +118,7 @@ func (r *productTypeRepository) applyCreditDelta(id uint, amount float64, txType
 			Source:      source,
 			OldAmount:   oldAmount,
 			Amount:      amount,
+			BonusAmount: bonusAmount,
 			NewAmount:   newAmount,
 			Remark:      remark,
 			CreatedByID: createdByID,
@@ -126,12 +131,12 @@ func (r *productTypeRepository) applyCreditDelta(id uint, amount float64, txType
 	return r.FindByID(id, nil)
 }
 
-func (r *productTypeRepository) TopUpCredit(id uint, amount float64, remark string, createdByID uint, source models.BalanceTxSource) (*models.ProductType, error) {
-	return r.applyCreditDelta(id, amount, models.BalanceTxTopUp, remark, createdByID, source)
+func (r *productTypeRepository) TopUpCredit(id uint, amount float64, remark string, createdByID uint, source models.BalanceTxSource, bonusAmount float64) (*models.ProductType, error) {
+	return r.applyCreditDelta(id, amount, models.BalanceTxTopUp, remark, createdByID, source, bonusAmount)
 }
 
-func (r *productTypeRepository) WithdrawCredit(id uint, amount float64, remark string, createdByID uint, source models.BalanceTxSource) (*models.ProductType, error) {
-	return r.applyCreditDelta(id, amount, models.BalanceTxWithdrawal, remark, createdByID, source)
+func (r *productTypeRepository) WithdrawCredit(id uint, amount float64, remark string, createdByID uint, source models.BalanceTxSource, bonusAmount float64) (*models.ProductType, error) {
+	return r.applyCreditDelta(id, amount, models.BalanceTxWithdrawal, remark, createdByID, source, bonusAmount)
 }
 
 // Delete removes a product type by ID. If scopeIDs is non-nil, the record

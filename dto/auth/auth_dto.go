@@ -2,7 +2,7 @@ package authdto
 
 // LoginRequest is the payload for POST /auth/login
 type LoginRequest struct {
-	Email    string `json:"email" binding:"required,email"`
+	Email    string `json:"email" binding:"required"` // login identifier, not validated as a real email format (e.g. "name@branchcode")
 	Password string `json:"password" binding:"required,min=6"`
 }
 

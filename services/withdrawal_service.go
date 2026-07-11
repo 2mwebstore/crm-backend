@@ -145,7 +145,7 @@ func (s *withdrawalService) Create(createdByID uint, req transactiondto.CreateRe
 		if _, err := txCompanyBankRepo.WithdrawCash(req.CompanyBankID, req.Amount, remark, createdByID, models.BalanceSourceTransaction); err != nil {
 			return err
 		}
-		if _, err := txProductTypeRepo.TopUpCredit(productTypeID, creditDelta, remark, createdByID, models.BalanceSourceTransaction); err != nil {
+		if _, err := txProductTypeRepo.TopUpCredit(productTypeID, creditDelta, remark, createdByID, models.BalanceSourceTransaction, 0); err != nil {
 			return err
 		}
 		return nil
@@ -254,7 +254,7 @@ func (s *withdrawalService) Update(id uint, scopeIDs []uint, req transactiondto.
 			if _, err := txCompanyBankRepo.TopUpCash(oldCompanyBankID, oldAmount, remark+" (reversal)", updatedByID, models.BalanceSourceTransaction); err != nil {
 				return err
 			}
-			if _, err := txProductTypeRepo.WithdrawCredit(productTypeID, oldCreditDelta, remark+" (reversal)", updatedByID, models.BalanceSourceTransaction); err != nil {
+			if _, err := txProductTypeRepo.WithdrawCredit(productTypeID, oldCreditDelta, remark+" (reversal)", updatedByID, models.BalanceSourceTransaction, 0); err != nil {
 				return err
 			}
 
@@ -262,7 +262,7 @@ func (s *withdrawalService) Update(id uint, scopeIDs []uint, req transactiondto.
 			if _, err := txCompanyBankRepo.WithdrawCash(newCompanyBankID, newAmount, remark, updatedByID, models.BalanceSourceTransaction); err != nil {
 				return err
 			}
-			if _, err := txProductTypeRepo.TopUpCredit(productTypeID, newCreditDelta, remark, updatedByID, models.BalanceSourceTransaction); err != nil {
+			if _, err := txProductTypeRepo.TopUpCredit(productTypeID, newCreditDelta, remark, updatedByID, models.BalanceSourceTransaction, 0); err != nil {
 				return err
 			}
 		}
@@ -296,7 +296,7 @@ func (s *withdrawalService) Delete(id uint, scopeIDs []uint, deletedByID uint) e
 		if _, err := txCompanyBankRepo.TopUpCash(w.CompanyBankID, w.Amount, remark, deletedByID, models.BalanceSourceTransaction); err != nil {
 			return err
 		}
-		if _, err := txProductTypeRepo.WithdrawCredit(productTypeID, creditDelta, remark, deletedByID, models.BalanceSourceTransaction); err != nil {
+		if _, err := txProductTypeRepo.WithdrawCredit(productTypeID, creditDelta, remark, deletedByID, models.BalanceSourceTransaction, 0); err != nil {
 			return err
 		}
 		return txWithdrawalRepo.Delete(id)

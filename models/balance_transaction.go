@@ -67,6 +67,16 @@ type BalanceTransaction struct {
 	Amount    float64 `gorm:"type:decimal(18,2);not null" json:"amount"`
 	NewAmount float64 `gorm:"type:decimal(18,2);not null" json:"new_amount"`
 
+	// BonusAmount is the portion of Amount that came from a Deposit's
+	// bonus (always 0 for non-Deposit-originated entries — Withdrawals,
+	// direct Configuration actions, and Adjustments never carry a bonus).
+	// Purely descriptive: the balance change already reflects the full
+	// Amount (principal + bonus combined) — this field just lets readers
+	// (like the Daily Balance ledger view) see how much of that change was
+	// bonus vs the client's actual deposited cash, without altering the
+	// balance math itself.
+	BonusAmount float64 `gorm:"type:decimal(18,2);not null;default:0" json:"bonus_amount"`
+
 	Remark string `gorm:"type:varchar(255)" json:"remark,omitempty"`
 
 	CreatedByID uint  `gorm:"index;not null" json:"created_by_id"`

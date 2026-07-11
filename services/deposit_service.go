@@ -148,6 +148,11 @@ func (s *depositService) Create(createdByID uint, req transactiondto.CreateReque
 	// amount does, but (unlike the amount) is never real cash, so it must
 	// NOT be added to the company bank's cash top-up below.
 	creditDelta := utils.ConvertCurrency(req.Amount+bonusAmount, currency, productCurrency)
+	// Converted separately (not just carved out of creditDelta) so the
+	// ledger's BonusAmount is recorded in the SAME currency as Amount —
+	// otherwise a deposit in one currency against a product priced in
+	// another would record a bonus figure on the wrong currency scale.
+	bonusCreditDelta := utils.ConvertCurrency(bonusAmount, currency, productCurrency)
 
 	deposit := &models.Deposit{
 		TransactionNo:   txNo,
@@ -203,7 +208,7 @@ func (s *depositService) Create(createdByID uint, req transactiondto.CreateReque
 		// pool — skip if there's nothing to draw down (amount and bonus
 		// both 0).
 		if creditDelta > 0 {
-			if _, err := txProductTypeRepo.WithdrawCredit(productTypeID, creditDelta, remark, createdByID, models.BalanceSourceTransaction); err != nil {
+			if _, err := txProductTypeRepo.WithdrawCredit(productTypeID, creditDelta, remark, createdByID, models.BalanceSourceTransaction, bonusCreditDelta); err != nil {
 				return err
 			}
 		}
@@ -324,25 +329,31 @@ func (s *depositService) Update(id uint, scopeIDs []uint, req transactiondto.Upd
 			// all reject a non-positive amount.
 			remark := "Deposit edited " + d.TransactionNo
 			oldCreditDelta := utils.ConvertCurrency(oldAmount+oldBonusAmount, d.Currency, productCurrency)
+			// Same rationale as Create: convert the bonus portion
+			// separately so it's recorded in the ledger on the same
+			// currency scale as Amount, not the deposit's original
+			// currency.
+			oldBonusCreditDelta := utils.ConvertCurrency(oldBonusAmount, d.Currency, productCurrency)
 			if oldAmount > 0 {
 				if _, err := txCompanyBankRepo.WithdrawCash(oldCompanyBankID, oldAmount, remark+" (reversal)", updatedByID, models.BalanceSourceTransaction); err != nil {
 					return err
 				}
 			}
 			if oldCreditDelta > 0 {
-				if _, err := txProductTypeRepo.TopUpCredit(productTypeID, oldCreditDelta, remark+" (reversal)", updatedByID, models.BalanceSourceTransaction); err != nil {
+				if _, err := txProductTypeRepo.TopUpCredit(productTypeID, oldCreditDelta, remark+" (reversal)", updatedByID, models.BalanceSourceTransaction, oldBonusCreditDelta); err != nil {
 					return err
 				}
 			}
 
 			newCreditDelta := utils.ConvertCurrency(newAmount+newBonusAmount, d.Currency, productCurrency)
+			newBonusCreditDelta := utils.ConvertCurrency(newBonusAmount, d.Currency, productCurrency)
 			if newAmount > 0 {
 				if _, err := txCompanyBankRepo.TopUpCash(newCompanyBankID, newAmount, remark, updatedByID, models.BalanceSourceTransaction); err != nil {
 					return err
 				}
 			}
 			if newCreditDelta > 0 {
-				if _, err := txProductTypeRepo.WithdrawCredit(productTypeID, newCreditDelta, remark, updatedByID, models.BalanceSourceTransaction); err != nil {
+				if _, err := txProductTypeRepo.WithdrawCredit(productTypeID, newCreditDelta, remark, updatedByID, models.BalanceSourceTransaction, newBonusCreditDelta); err != nil {
 					return err
 				}
 			}
@@ -367,6 +378,7 @@ func (s *depositService) Delete(id uint, scopeIDs []uint, deletedByID uint) erro
 	}
 	productCurrency := s.productCurrency(productTypeID)
 	creditDelta := utils.ConvertCurrency(d.Amount+d.BonusAmount, d.Currency, productCurrency)
+	bonusCreditDelta := utils.ConvertCurrency(d.BonusAmount, d.Currency, productCurrency)
 
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		txDepositRepo := repositories.NewDepositRepository(tx)
@@ -380,7 +392,7 @@ func (s *depositService) Delete(id uint, scopeIDs []uint, deletedByID uint) erro
 			}
 		}
 		if creditDelta > 0 {
-			if _, err := txProductTypeRepo.TopUpCredit(productTypeID, creditDelta, remark, deletedByID, models.BalanceSourceTransaction); err != nil {
+			if _, err := txProductTypeRepo.TopUpCredit(productTypeID, creditDelta, remark, deletedByID, models.BalanceSourceTransaction, bonusCreditDelta); err != nil {
 				return err
 			}
 		}

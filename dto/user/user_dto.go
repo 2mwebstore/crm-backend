@@ -4,7 +4,7 @@ package userdto
 
 type AdminCreateUserRequest struct {
 	Name      string `json:"name" binding:"required,min=2,max=100"`
-	Email     string `json:"email" binding:"required,email"`
+	Email     string `json:"email" binding:"required"` // login identifier, not validated as a real email format (e.g. "name@branchcode")
 	Password  string `json:"password" binding:"required,min=6"`
 	RoleID    *uint  `json:"role_id"`
 	ParentID  *uint  `json:"parent_id"`  // nil = root/simple user, set = sub-user
@@ -24,7 +24,7 @@ type AdminUpdateUserRequest struct {
 
 type CreateSubUserRequest struct {
 	Name      string `json:"name" binding:"required,min=2,max=100"`
-	Email     string `json:"email" binding:"required,email"`
+	Email     string `json:"email" binding:"required"` // login identifier, not validated as a real email format (e.g. "name@branchcode")
 	Password  string `json:"password" binding:"required,min=6"`
 	RoleID    *uint  `json:"role_id"`
 	BranchIDs []uint `json:"branch_ids"` // up to 1 branch for sub-users
