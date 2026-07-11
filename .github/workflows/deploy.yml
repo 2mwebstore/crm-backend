@@ -1,0 +1,38 @@
+name: Deploy CRM Backend
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to DigitalOcean
+        uses: appleboy/ssh-action@v1.2.2
+
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.PORT }}
+
+          script: |
+            cd /var/www/crm-backend
+
+            echo "Pull latest source..."
+            git fetch origin
+            git reset --hard origin/main
+
+            echo "Download modules..."
+            go mod tidy
+
+            echo "Build..."
+            go build -o crm-api .
+
+            echo "Restart service..."
+            sudo systemctl restart crm-api
+
+            echo "Done!"
