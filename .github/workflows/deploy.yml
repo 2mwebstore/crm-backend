@@ -20,6 +20,8 @@ jobs:
           port: ${{ secrets.PORT }}
 
           script: |
+            set -e
+
             cd /var/www/crm-backend
 
             echo "Pull latest source..."
@@ -27,12 +29,19 @@ jobs:
             git reset --hard origin/main
 
             echo "Download modules..."
-            go mod tidy
+            go mod download
 
             echo "Build..."
-            go build -o crm-api .
+            go build -o crm-api ./cmd/server
+
+            echo "Set permission..."
+            chmod +x crm-api
 
             echo "Restart service..."
+            sudo systemctl daemon-reload
             sudo systemctl restart crm-api
+
+            echo "Check service..."
+            sudo systemctl status crm-api --no-pager
 
             echo "Done!"
