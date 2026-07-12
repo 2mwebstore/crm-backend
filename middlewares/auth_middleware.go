@@ -1,6 +1,8 @@
 package middlewares
 
 import (
+	"errors"
+	"log"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -66,20 +68,31 @@ func Auth() gin.HandlerFunc {
 		// moment on, effectively logging that device out automatically.
 		if authDB != nil {
 			var user models.User
-			if err := authDB.Select("token_version", "is_active").First(&user, claims.UserID).Error; err != nil {
-				utils.Unauthorized(c, "invalid or expired token")
-				c.Abort()
-				return
-			}
-			if !user.IsActive {
-				utils.Unauthorized(c, "account is disabled")
-				c.Abort()
-				return
-			}
-			if user.TokenVersion != claims.TokenVersion {
-				utils.Unauthorized(c, "session expired — signed in on another device")
-				c.Abort()
-				return
+			err := authDB.Select("token_version", "is_active").First(&user, claims.UserID).Error
+			if err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					utils.Unauthorized(c, "invalid or expired token")
+					c.Abort()
+					return
+				}
+				// A transient DB error here (connection hiccup, timeout)
+				// is NOT the same thing as "this session was superseded" —
+				// failing every request closed on a momentary DB blip
+				// would look exactly like this feature randomly logging
+				// everyone out. Log it and let the request through on the
+				// JWT's own signature validity instead of hard-rejecting.
+				log.Printf("[auth] token version check failed to query DB (failing open): %v", err)
+			} else {
+				if !user.IsActive {
+					utils.Unauthorized(c, "account is disabled")
+					c.Abort()
+					return
+				}
+				if user.TokenVersion != claims.TokenVersion {
+					utils.Unauthorized(c, "session expired — signed in on another device")
+					c.Abort()
+					return
+				}
 			}
 		}
 
