@@ -61,6 +61,13 @@ func Get() *Config {
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
+// GetEnv is the exported form of getEnv, for other packages (e.g. routes.go
+// gating the seeder behind DB_SEED) that need the same "env var, or this
+// fallback if unset/empty" lookup without duplicating the logic.
+func GetEnv(key, fallback string) string {
+	return getEnv(key, fallback)
+}
+
 func getEnv(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
