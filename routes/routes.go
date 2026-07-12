@@ -49,22 +49,17 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	balanceTxRepo := repositories.NewBalanceTransactionRepository(db)
 	dailyStartBalanceRepo := repositories.NewDailyStartBalanceRepository(db)
 
-	// ── Seed permissions + system roles ───────────────────────────────────────
-	// Always seed permissions — idempotent, adds any new ones added in code
-	_ = permRepo.Seed(models.AllPermissions)
-	allPerms, _ := permRepo.FindAll()
-	// Always sync system roles — updates permissions to match current definitions
-	_ = roleRepo.SeedSystemRoles(allPerms)
-
-	// Sample/starter data (Super Admin, Levels, Bank Types, Product Types,
-	// etc.) — gated separately from the permission/role sync above, since
-	// this is the part you'd actually want to turn off once a real
-	// production DB already has its own real data. Defaults to "true" so
-	// nothing changes unless DB_SEED is explicitly set.
+	// ── Seed permissions + system roles + sample data ─────────────────────────
+	// All three gated together behind DB_SEED — turn off once a production
+	// DB already has its own real permissions, roles, and data configured.
+	// Defaults to "true" so nothing changes unless DB_SEED is explicitly set.
 	if config.GetEnv("DB_SEED", "true") == "true" {
+		_ = permRepo.Seed(models.AllPermissions)
+		allPerms, _ := permRepo.FindAll()
+		_ = roleRepo.SeedSystemRoles(allPerms)
 		migrations.SeedAll(db)
 	} else {
-		log.Println("⏭️  Seeder skipped (DB_SEED=false)")
+		log.Println("⏭️  Seeder skipped (DB_SEED=false) — permissions, system roles, and sample data left untouched")
 	}
 
 	// ── Services ──────────────────────────────────────────────────────────────
