@@ -4,19 +4,36 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"crm-backend/config"
+	"crm-backend/models"
 	"crm-backend/utils"
 )
 
 const (
-	CtxUserID = "userID"
-	CtxEmail  = "userEmail"
-	CtxRole        = "userRole"
-	CtxSuperAdmin  = "isSuperAdmin"
+	CtxUserID     = "userID"
+	CtxEmail      = "userEmail"
+	CtxRole       = "userRole"
+	CtxSuperAdmin = "isSuperAdmin"
 )
 
-// Auth validates the Bearer JWT and injects claims into Gin context.
+// authDB is set once at startup via InitAuth — kept as a package-level
+// reference rather than threading a *gorm.DB through every single
+// middlewares.Auth() call site (there are ~15 of them across the route
+// files), which would otherwise all need editing for this one check.
+var authDB *gorm.DB
+
+// InitAuth must be called once during route setup, before any request
+// hits Auth() — gives the middleware DB access for the TokenVersion check
+// below without changing Auth()'s own signature anywhere it's used.
+func InitAuth(db *gorm.DB) {
+	authDB = db
+}
+
+// Auth validates the Bearer JWT, confirms it hasn't been superseded by a
+// newer login elsewhere (see TokenVersion below), and injects claims into
+// Gin context.
 func Auth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		cfg := config.Get()
@@ -40,6 +57,30 @@ func Auth() gin.HandlerFunc {
 			utils.Unauthorized(c, "invalid or expired token")
 			c.Abort()
 			return
+		}
+
+		// One active session per user: a token's embedded TokenVersion
+		// must match the user's CURRENT value in the DB. Logging in on a
+		// new device bumps that DB value, so every token from an earlier
+		// login — on any other device — fails this check from that
+		// moment on, effectively logging that device out automatically.
+		if authDB != nil {
+			var user models.User
+			if err := authDB.Select("token_version", "is_active").First(&user, claims.UserID).Error; err != nil {
+				utils.Unauthorized(c, "invalid or expired token")
+				c.Abort()
+				return
+			}
+			if !user.IsActive {
+				utils.Unauthorized(c, "account is disabled")
+				c.Abort()
+				return
+			}
+			if user.TokenVersion != claims.TokenVersion {
+				utils.Unauthorized(c, "session expired — signed in on another device")
+				c.Abort()
+				return
+			}
 		}
 
 		c.Set(CtxUserID, claims.UserID)

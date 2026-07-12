@@ -323,3 +323,9 @@ sudo systemctl enable crm && sudo systemctl start crm
 ## Switching Uploads to Cloudflare R2 / S3
 
 Only `utils/uploader.go` needs to change — replace the `SaveFile` function with an SDK call and return the CDN URL as `FileURL`. All callers remain untouched.
+
+
+
+cd /var/www/crm-backend
+cp .env.example .env
+nano .env

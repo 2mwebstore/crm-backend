@@ -13,16 +13,25 @@ type JWTClaims struct {
 	Email        string `json:"email"`
 	Role         string `json:"role"`
 	IsSuperAdmin bool   `json:"is_super_admin"`
+	// TokenVersion must match the user's CURRENT token_version in the DB
+	// at request time — every login bumps that DB value, so a token
+	// issued by an earlier login carries a stale version and gets
+	// rejected. This is what enforces "one active session per user":
+	// logging in on a new device invalidates every token from previous
+	// logins without needing a server-side session store or token
+	// blocklist.
+	TokenVersion int `json:"token_version"`
 	jwt.RegisteredClaims
 }
 
 // GenerateToken creates a signed JWT string.
-func GenerateToken(userID uint, email, role, secret string, expireHours int, isSuperAdmin bool) (string, error) {
+func GenerateToken(userID uint, email, role, secret string, expireHours int, isSuperAdmin bool, tokenVersion int) (string, error) {
 	claims := JWTClaims{
 		UserID:       userID,
 		Email:        email,
 		Role:         role,
 		IsSuperAdmin: isSuperAdmin,
+		TokenVersion: tokenVersion,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Duration(expireHours) * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),

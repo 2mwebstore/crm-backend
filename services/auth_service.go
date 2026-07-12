@@ -69,12 +69,21 @@ func (s *authService) Login(req authdto.LoginRequest) (string, *models.User, err
 		return "", nil, errors.New("invalid email or password")
 	}
 
+	// Bump TokenVersion BEFORE issuing the new token — this is what
+	// invalidates every other device's existing session the instant this
+	// login succeeds (their tokens carry the old version, which no longer
+	// matches what's now in the DB).
+	user.TokenVersion++
+	if err := s.userRepo.Update(user); err != nil {
+		return "", nil, err
+	}
+
 	cfg := config.Get()
 	roleName := ""
 	if user.Role != nil {
 		roleName = user.Role.Name
 	}
-	token, err := utils.GenerateToken(user.ID, user.Email, roleName, cfg.JWT.Secret, cfg.JWT.ExpireHours, user.IsSuperAdmin)
+	token, err := utils.GenerateToken(user.ID, user.Email, roleName, cfg.JWT.Secret, cfg.JWT.ExpireHours, user.IsSuperAdmin, user.TokenVersion)
 	if err != nil {
 		return "", nil, err
 	}

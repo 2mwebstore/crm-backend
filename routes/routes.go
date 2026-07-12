@@ -16,6 +16,7 @@ import (
 )
 
 func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
+	middlewares.InitAuth(db)
 	if cfg.App.Env == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
