@@ -70,37 +70,41 @@ func ConnectDB(cfg *Config) *gorm.DB {
 		_, _ = sqlDB.Exec("SET time_zone = '+07:00'")
 	}
 
-	err = db.AutoMigrate(
-		&models.Branch{},
-		&models.CodeSequence{},
-		&models.Permission{},
-		&models.Role{},
-		&models.User{},
-		&models.Level{},
-		&models.ContactSource{},
-		&models.BankType{},
-		&models.ProductType{},
-		&models.BonusOptionType{},
-		&models.CurrencyType{},
-		&models.Client{},
-		&models.ClientPhone{},
-		&models.ClientBank{},
-		&models.ClientProduct{},
-		&models.ClientFollowUp{},
-		&models.InterestingClient{},
-		&models.InterestingClientPhone{},
-		&models.Deposit{},
-		&models.Withdrawal{},
-		&models.TurnoverBet{},
-		&models.CompanyBank{},
-		&models.BalanceTransaction{},
-		&models.DailyStartBalance{},
-		&models.DailyStartBalanceDetail{},
-	)
-	if err != nil {
-		log.Fatalf("database: migration failed — %v", err)
+	if getEnv("DB_AUTO_MIGRATE", "true") == "true" {
+		err = db.AutoMigrate(
+			&models.Branch{},
+			&models.CodeSequence{},
+			&models.Permission{},
+			&models.Role{},
+			&models.User{},
+			&models.Level{},
+			&models.ContactSource{},
+			&models.BankType{},
+			&models.ProductType{},
+			&models.BonusOptionType{},
+			&models.CurrencyType{},
+			&models.Client{},
+			&models.ClientPhone{},
+			&models.ClientBank{},
+			&models.ClientProduct{},
+			&models.ClientFollowUp{},
+			&models.InterestingClient{},
+			&models.InterestingClientPhone{},
+			&models.Deposit{},
+			&models.Withdrawal{},
+			&models.TurnoverBet{},
+			&models.CompanyBank{},
+			&models.BalanceTransaction{},
+			&models.DailyStartBalance{},
+			&models.DailyStartBalanceDetail{},
+		)
+		if err != nil {
+			log.Fatalf("database: migration failed — %v", err)
+		}
+		log.Println("✅ Database connected and migrated (Asia/Phnom_Penh)")
+	} else {
+		log.Println("✅ Database connected (Asia/Phnom_Penh) — AutoMigrate skipped (DB_AUTO_MIGRATE=false)")
 	}
 
-	log.Println("✅ Database connected and migrated (Asia/Phnom_Penh)")
 	return db
 }
