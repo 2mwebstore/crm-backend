@@ -25,13 +25,18 @@ func (r *currencyTypeRepository) Create(x *models.CurrencyType, createdByID uint
 	return r.db.Create(x).Error
 }
 
+// FindByID, List, and Delete deliberately ignore scopeIDs — CurrencyType
+// is a shared global reference list (USD/KHR), not a branch- or
+// creator-scoped entity. Filtering by "created_by_id IN scopeIDs" here was
+// a copy-paste bug from a branch-scoped lookup repository: it silently
+// hid every currency from a user unless THEY personally created it, which
+// makes no sense for a shared master list everyone needs to see the same
+// way. The scopeIDs parameters stay in the signature so the service/
+// controller layer above doesn't need to change, they're just unused here.
 func (r *currencyTypeRepository) FindByID(id uint, scopeIDs []uint) (*models.CurrencyType, error) {
 	var x models.CurrencyType
-	q := r.db.Where("id = ?", id)
-	if len(scopeIDs) > 0 {
-		q = q.Where("created_by_id IN ?", scopeIDs)
-	}
-	return &x, q.First(&x).Error
+	err := r.db.Where("id = ?", id).First(&x).Error
+	return &x, err
 }
 
 func (r *currencyTypeRepository) List(scopeIDs []uint, showAll bool) ([]models.CurrencyType, error) {
@@ -39,9 +44,6 @@ func (r *currencyTypeRepository) List(scopeIDs []uint, showAll bool) ([]models.C
 	q := r.db.Model(&models.CurrencyType{})
 	if !showAll {
 		q = q.Where("is_active = ?", true)
-	}
-	if len(scopeIDs) > 0 {
-		q = q.Where("created_by_id IN ?", scopeIDs)
 	}
 	err := q.Order("sort_order ASC, name ASC").Find(&items).Error
 	return items, err
@@ -52,11 +54,7 @@ func (r *currencyTypeRepository) Update(x *models.CurrencyType) error {
 }
 
 func (r *currencyTypeRepository) Delete(id uint, scopeIDs []uint) error {
-	q := r.db.Where("id = ?", id)
-	if len(scopeIDs) > 0 {
-		q = q.Where("created_by_id IN ?", scopeIDs)
-	}
-	return q.Delete(&models.CurrencyType{}).Error
+	return r.db.Where("id = ?", id).Delete(&models.CurrencyType{}).Error
 }
 
 func (r *currencyTypeRepository) ExistsByName(name string, excludeID uint) bool {
@@ -67,22 +65,4 @@ func (r *currencyTypeRepository) ExistsByName(name string, excludeID uint) bool 
 	}
 	q.Count(&count)
 	return count > 0
-}
-
-// resolveUserBranches returns the caller's own branch scope.
-// Returns nil = SA (no filter, sees everything even with a parent_id set),
-// []uint = the caller's own directly-assigned branches (may be empty = no
-// access). parent_id is not used here — simple/sub users never inherit a
-// parent's branches, they only see what's assigned to them directly.
-func (r *currencyTypeRepository) resolveUserBranches(userID uint) ([]uint, bool) {
-	var row struct {
-		IsSuperAdmin bool
-	}
-	if err := r.db.Raw("SELECT is_super_admin FROM users WHERE id = ?", userID).Scan(&row).Error; err != nil {
-		return []uint{}, false
-	}
-	if row.IsSuperAdmin { return nil, true }
-	var branchIDs []uint
-	r.db.Raw("SELECT branch_id FROM user_branches WHERE user_id = ?", userID).Scan(&branchIDs)
-	return branchIDs, false
 }
