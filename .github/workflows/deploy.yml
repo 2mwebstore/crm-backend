@@ -20,7 +20,7 @@ jobs:
           port: ${{ secrets.PORT }}
 
           script: |
-            set -e
+            export PATH=$PATH:/usr/local/go/bin
 
             cd /var/www/crm-backend
 
