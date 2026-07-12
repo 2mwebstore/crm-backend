@@ -1,6 +1,8 @@
 package routes
 
 import (
+	"log"
+
 	"github.com/gin-gonic/gin"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
@@ -53,7 +55,17 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	allPerms, _ := permRepo.FindAll()
 	// Always sync system roles — updates permissions to match current definitions
 	_ = roleRepo.SeedSystemRoles(allPerms)
-	migrations.SeedAll(db)
+
+	// Sample/starter data (Super Admin, Levels, Bank Types, Product Types,
+	// etc.) — gated separately from the permission/role sync above, since
+	// this is the part you'd actually want to turn off once a real
+	// production DB already has its own real data. Defaults to "true" so
+	// nothing changes unless DB_SEED is explicitly set.
+	if config.GetEnv("DB_SEED", "true") == "true" {
+		migrations.SeedAll(db)
+	} else {
+		log.Println("⏭️  Seeder skipped (DB_SEED=false)")
+	}
 
 	// ── Services ──────────────────────────────────────────────────────────────
 	authSvc := services.NewAuthService(userRepo, roleRepo)
