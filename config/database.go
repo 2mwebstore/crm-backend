@@ -97,6 +97,7 @@ func ConnectDB(cfg *Config) *gorm.DB {
 			&models.BalanceTransaction{},
 			&models.DailyStartBalance{},
 			&models.DailyStartBalanceDetail{},
+			&models.AuditLog{},
 		)
 		if err != nil {
 			log.Fatalf("database: migration failed — %v", err)

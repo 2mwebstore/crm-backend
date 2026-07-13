@@ -246,6 +246,9 @@ const (
 	// closes out shifts opened by regular staff.
 	PermDailyBalanceStart = "daily_balance.start"
 	PermDailyBalanceClose = "daily_balance.close"
+
+	PermAuditLogView   = "audit_logs.view"
+	PermAuditLogDelete = "audit_logs.delete"
 )
 
 func init() {
@@ -263,5 +266,7 @@ func init() {
 		Permission{Name: PermDailyBalanceView, DisplayName: "View Daily Balance", Group: "daily_balance", Description: "View the Daily Balance page — current totals, income, and shift History"},
 		Permission{Name: PermDailyBalanceStart, DisplayName: "Start Shift", Group: "daily_balance", Description: "Open a new Daily Balance shift for a branch"},
 		Permission{Name: PermDailyBalanceClose, DisplayName: "Close Shift", Group: "daily_balance", Description: "Close the currently open Daily Balance shift for a branch"},
+		Permission{Name: PermAuditLogView, DisplayName: "View Audit Log", Group: "audit_logs", Description: "View the full record of every user's actions across every branch"},
+		Permission{Name: PermAuditLogDelete, DisplayName: "Delete Audit Log Entries", Group: "audit_logs", Description: "Permanently delete old audit log entries (e.g. older than a week/month)"},
 	)
 }

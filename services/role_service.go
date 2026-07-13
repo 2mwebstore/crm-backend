@@ -12,7 +12,7 @@ import (
 
 type RoleService interface {
 	Create(createdByID uint, req lookupdto.CreateRoleRequest) (*models.Role, error)
-	ListAccessible(callerID uint) ([]models.Role, error)
+	ListAccessible(callerID uint, nameFilter string, createdByID *uint) ([]models.Role, error)
 	ListForAssignment(callerID uint) ([]models.Role, error)
 	GetByID(id uint, callerSubtree []uint) (*models.Role, error)
 	Update(id uint, callerID uint, callerSubtree []uint, req lookupdto.UpdateRoleRequest) (*models.Role, error)
@@ -77,18 +77,27 @@ func (s *roleService) Create(createdByID uint, req lookupdto.CreateRoleRequest) 
 	return s.roleRepo.FindByID(role.ID)
 }
 
-func (s *roleService) ListAccessible(callerID uint) ([]models.Role, error) {
+// ListAccessible returns roles visible to the caller, optionally narrowed by
+// role name (partial match) and by the user who created the role.
+//
+// nameFilter and createdByID are applied on top of the existing scope rules:
+//   - SA/SA sub-user (scope == nil): only system roles, optionally filtered
+//     by name and/or a specific creator.
+//   - Simple/Sub User (scope != nil): only their own created roles. Passing a
+//     createdByID other than callerID here will simply return no results,
+//     since the repo already scopes to created_by_id = callerID.
+func (s *roleService) ListAccessible(callerID uint, nameFilter string, createdByID *uint) ([]models.Role, error) {
 	scope, err := s.userRepo.GetScopeIDs(callerID)
 	if err != nil {
 		return nil, err
 	}
 	if scope == nil {
 		// SA or SA sub-user: only system roles (is_system = 1)
-		return s.roleRepo.ListAccessible(0)
+		return s.roleRepo.ListAccessible(0, nameFilter, createdByID)
 	}
 	// Simple User / Sub User: ONLY roles they created (created_by_id = callerID)
 	// No system roles shown in the list — they assign system roles to sub-users separately
-	return s.roleRepo.ListAccessible(callerID)
+	return s.roleRepo.ListAccessible(callerID, nameFilter, createdByID)
 }
 
 func (s *roleService) GetByID(id uint, callerSubtree []uint) (*models.Role, error) {

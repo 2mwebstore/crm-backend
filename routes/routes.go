@@ -23,7 +23,7 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 		gin.SetMode(gin.ReleaseMode)
 	}
 	r := gin.New()
-	r.Use(middlewares.Recovery(), middlewares.Logger(), middlewares.CORS())
+	r.Use(middlewares.Recovery(), middlewares.Logger(), middlewares.CORS(), middlewares.AuditLog())
 	r.Static("/uploads", cfg.App.UploadDir)
 	r.GET("/health", func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok"}) })
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
@@ -48,6 +48,7 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	companyBankRepo := repositories.NewCompanyBankRepository(db)
 	balanceTxRepo := repositories.NewBalanceTransactionRepository(db)
 	dailyStartBalanceRepo := repositories.NewDailyStartBalanceRepository(db)
+	auditLogRepo := repositories.NewAuditLogRepository(db)
 
 	// ── Seed permissions + system roles + sample data ─────────────────────────
 	// All three gated together behind DB_SEED — turn off once a production
@@ -82,6 +83,7 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	followUpSvc := services.NewFollowUpService(followUpRepo, db)
 	balanceTxSvc := services.NewBalanceTransactionService(balanceTxRepo)
 	dailyStartBalanceSvc := services.NewDailyStartBalanceService(dailyStartBalanceRepo, userRepo, companyBankRepo, productTypeRepo, depositRepo, withdrawalRepo, balanceTxRepo)
+	auditLogSvc := services.NewAuditLogService(auditLogRepo)
 
 	// ── Controllers ───────────────────────────────────────────────────────────
 	authCtrl := controllers.NewAuthController(authSvc)
@@ -106,6 +108,7 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	withdrawalCtrl := controllers.NewWithdrawalController(db, withdrawalSvc, userSvc)
 	balanceTxCtrl := controllers.NewBalanceTransactionController(balanceTxSvc)
 	dailyStartBalanceCtrl := controllers.NewDailyStartBalanceController(dailyStartBalanceSvc)
+	auditLogCtrl := controllers.NewAuditLogController(auditLogSvc)
 
 	// ── API v1 ────────────────────────────────────────────────────────────────
 	// Inject db into context for controllers that need raw queries
@@ -126,6 +129,7 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	RegisterReportRoutes(v1, reportCtrl, userRepo)
 	RegisterBranchRoutes(v1, branchCtrl)
 	RegisterDailyStartBalanceRoutes(v1, dailyStartBalanceCtrl, userRepo)
+	RegisterAuditLogRoutes(v1, auditLogCtrl, userRepo)
 
 	return r
 }

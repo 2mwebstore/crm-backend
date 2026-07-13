@@ -29,7 +29,21 @@ func NewRoleController(svc services.RoleService, userSvc services.UserService) *
 // @Router       /roles [get]
 func (ctrl *RoleController) List(c *gin.Context) {
 	callerID := middlewares.GetUserID(c)
-	roles, err := ctrl.svc.ListAccessible(callerID)
+
+	nameFilter := c.Query("name")
+
+	var createdByID *uint
+	if v := c.Query("created_by"); v != "" {
+		id, err := strconv.ParseUint(v, 10, 64)
+		if err != nil {
+			utils.BadRequest(c, "invalid created_by")
+			return
+		}
+		u := uint(id)
+		createdByID = &u
+	}
+
+	roles, err := ctrl.svc.ListAccessible(callerID, nameFilter, createdByID)
 	if err != nil {
 		utils.InternalError(c, err)
 		return

@@ -10,7 +10,7 @@ type RoleRepository interface {
 	Create(role *models.Role) error
 	FindByID(id uint) (*models.Role, error)
 	FindByName(name string, createdByID *uint) (*models.Role, error)
-	ListAccessible(callerID uint) ([]models.Role, error)
+	ListAccessible(callerID uint, nameFilter string, createdByID *uint) ([]models.Role, error)
 	ListForAssignment(callerID uint) ([]models.Role, error)
 	Update(role *models.Role) error
 	Delete(id uint) error
@@ -51,16 +51,23 @@ func (r *roleRepository) FindByName(name string, createdByID *uint) (*models.Rol
 //   - callerID = 0  → SA or SA sub-user: only is_system = 1 roles
 //   - callerID > 0  → Simple/Sub User: ONLY roles where created_by_id = callerID
 //     (their own created roles, no system roles in the list)
-func (r *roleRepository) ListAccessible(callerID uint) ([]models.Role, error) {
+func (r *roleRepository) ListAccessible(callerID uint, nameFilter string, createdByID *uint) ([]models.Role, error) {
 	var roles []models.Role
-	q := r.db.Preload("Permissions").Order("is_system DESC, name ASC")
-	if callerID == 0 {
-		// SA / SA sub-user: system roles only
-		q = q.Where("is_system = ?", true)
-	} else {
+	q := r.db.Preload("Permissions").Preload("CreatedBy").Order("is_system DESC, name ASC")
+
+	if callerID != 0 {
 		// Simple/Sub User: only own created roles
 		q = q.Where("created_by_id = ?", callerID)
 	}
+
+	if nameFilter != "" {
+		q = q.Where("name LIKE ?", "%"+nameFilter+"%")
+	}
+
+	if createdByID != nil {
+		q = q.Where("created_by_id = ?", *createdByID)
+	}
+
 	err := q.Find(&roles).Error
 	return roles, err
 }
@@ -173,7 +180,7 @@ func (r *roleRepository) SeedSystemRoles(perms []models.Permission) error {
 // callerID > 0: system roles + own created roles.
 func (r *roleRepository) ListForAssignment(callerID uint) ([]models.Role, error) {
 	var roles []models.Role
-	q := r.db.Preload("Permissions").Order("is_system DESC, name ASC")
+	q := r.db.Preload("Permissions").Preload("CreatedBy").Order("is_system DESC, name ASC")
 	if callerID == 0 {
 		q = q.Where("is_system = ?", true)
 	} else {
