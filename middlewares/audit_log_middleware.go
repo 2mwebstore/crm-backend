@@ -59,16 +59,26 @@ func redactSensitiveFields(raw []byte) string {
 }
 
 // extractBranchID makes a best-effort guess at which branch a request
-// concerns — from the JSON body's own branch_id field, falling back to a
-// branch_id query param. Many actions genuinely have no branch context, so
-// returning nil here is expected and fine, not an error case.
+// concerns — checked in order: the JSON body's own branch_id field, the
+// first entry of a branch_ids array (e.g. creating a sub-user with
+// multiple branches assigned at once — there's no single "the" branch
+// there, so the first one is used as a best-effort attribution), then a
+// branch_id query param. Many actions genuinely have no branch context at
+// all, so returning nil here is expected and fine, not an error case.
 func extractBranchID(bodyJSON []byte, queryVals map[string][]string) *uint {
 	var m struct {
-		BranchID *uint `json:"branch_id"`
+		BranchID  *uint  `json:"branch_id"`
+		BranchIDs []uint `json:"branch_ids"`
 	}
 	if len(bodyJSON) > 0 {
-		if err := json.Unmarshal(bodyJSON, &m); err == nil && m.BranchID != nil && *m.BranchID != 0 {
-			return m.BranchID
+		if err := json.Unmarshal(bodyJSON, &m); err == nil {
+			if m.BranchID != nil && *m.BranchID != 0 {
+				return m.BranchID
+			}
+			if len(m.BranchIDs) > 0 && m.BranchIDs[0] != 0 {
+				id := m.BranchIDs[0]
+				return &id
+			}
 		}
 	}
 	if vals, ok := queryVals["branch_id"]; ok && len(vals) > 0 {
@@ -78,6 +88,53 @@ func extractBranchID(bodyJSON []byte, queryVals map[string][]string) *uint {
 		}
 	}
 	return nil
+}
+
+// branchScopedTables maps a URL path segment (the plural resource name, as
+// it appears right after /api/v1/) to the DB table that has its own
+// branch_id column — used only for DELETE requests, where there's no
+// request body to read branch_id from at all (the ID is in the URL, not a
+// JSON body). Extend this as other branch-scoped resources gain DELETE
+// endpoints.
+var branchScopedTables = map[string]string{
+	"company-banks": "company_banks",
+	"product-types": "product_types",
+	"clients":       "clients",
+	"deposits":      "deposits",
+	"withdrawals":   "withdrawals",
+}
+
+// lookupBranchIDForDelete extracts the trailing numeric ID from a DELETE
+// request's own path (e.g. "/api/v1/product-types/42" → table
+// "product_types", id 42) and looks up that specific row's branch_id.
+// MUST be called BEFORE c.Next() — by the time this middleware's
+// post-request code would normally run, a successful delete has already
+// removed the row, so looking it up after the fact would always miss.
+func lookupBranchIDForDelete(path string) *uint {
+	if authDB == nil {
+		return nil
+	}
+	segments := strings.Split(strings.Trim(path, "/"), "/")
+	if len(segments) < 2 {
+		return nil
+	}
+	idStr := segments[len(segments)-1]
+	slug := segments[len(segments)-2]
+	id, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil || id == 0 {
+		return nil
+	}
+	table, ok := branchScopedTables[slug]
+	if !ok {
+		return nil
+	}
+	var row struct{ BranchID *uint }
+	// table is only ever one of the fixed values in branchScopedTables
+	// above, never taken from request input directly.
+	if err := authDB.Table(table).Select("branch_id").Where("id = ?", id).Scan(&row).Error; err != nil {
+		return nil
+	}
+	return row.BranchID
 }
 
 // AuditLog records every authenticated, state-changing request (POST/PUT/
@@ -103,6 +160,12 @@ func AuditLog() gin.HandlerFunc {
 		if c.Request.Body != nil {
 			bodyBytes, _ = io.ReadAll(c.Request.Body)
 			c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+		}
+
+		// Must happen BEFORE c.Next() — see lookupBranchIDForDelete.
+		var preDeleteBranchID *uint
+		if method == "DELETE" {
+			preDeleteBranchID = lookupBranchIDForDelete(c.Request.URL.Path)
 		}
 
 		c.Next()
@@ -132,6 +195,9 @@ func AuditLog() gin.HandlerFunc {
 		}
 
 		branchID := extractBranchID(bodyBytes, c.Request.URL.Query())
+		if branchID == nil {
+			branchID = preDeleteBranchID
+		}
 		redactedBody := redactSensitiveFields(bodyBytes)
 		entry := &models.AuditLog{
 			UserID:      userID,
