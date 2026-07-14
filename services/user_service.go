@@ -127,14 +127,34 @@ func (s *userService) AdminUpdateUser(targetID uint, req userdto.AdminUpdateUser
 		target.IsActive = *req.IsActive
 	}
 	if req.RoleID != nil {
+		var newRoleID *uint
 		if *req.RoleID == 0 {
-			target.RoleID = nil
+			newRoleID = nil
 		} else {
 			if _, err := s.roleRepo.FindByID(*req.RoleID); err != nil {
 				return nil, errors.New("role not found")
 			}
-			target.RoleID = req.RoleID
+			newRoleID = req.RoleID
 		}
+
+		// The JWT bakes in the user's role name at login time (see
+		// utils.GenerateToken / middlewares.Auth's RequireRoles check),
+		// and nothing re-reads that from the DB per-request. So if this
+		// actually changes the role, an already-issued token for this
+		// user would keep authorizing against the OLD role indefinitely
+		// — until it happened to expire or they manually logged out.
+		// Bumping TokenVersion reuses the existing "one session per
+		// device" mechanism to force that immediately: their current
+		// token fails the TokenVersion check on its very next request,
+		// requiring a fresh login that issues a token with the correct
+		// new role/permissions.
+		oldRoleID := target.RoleID
+		changed := (oldRoleID == nil) != (newRoleID == nil) ||
+			(oldRoleID != nil && newRoleID != nil && *oldRoleID != *newRoleID)
+		if changed {
+			target.TokenVersion++
+		}
+		target.RoleID = newRoleID
 	}
 
 	// 0 = make root user. Otherwise re-parent the target under the given
@@ -320,6 +340,14 @@ func (s *userService) UpdateSubUser(callerID uint, targetID uint, req userdto.Up
 					return nil, errors.New("cannot assign permission '" + p.DisplayName + "' — you do not have it yourself")
 				}
 			}
+		}
+		// Same reasoning as AdminUpdateUser above: bump TokenVersion so
+		// this user's current token — which still carries their old role
+		// name — stops being accepted immediately, forcing a fresh login
+		// that picks up the new role/permissions.
+		oldRoleID := target.RoleID
+		if (oldRoleID == nil) || *oldRoleID != *req.RoleID {
+			target.TokenVersion++
 		}
 		target.RoleID = req.RoleID
 	}
