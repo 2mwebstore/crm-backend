@@ -49,6 +49,12 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	balanceTxRepo := repositories.NewBalanceTransactionRepository(db)
 	dailyStartBalanceRepo := repositories.NewDailyStartBalanceRepository(db)
 	auditLogRepo := repositories.NewAuditLogRepository(db)
+	leaveTypeRepo := repositories.NewLeaveTypeRepository(db)
+	leaveRequestRepo := repositories.NewLeaveRequestRepository(db)
+	overtimeRequestRepo := repositories.NewOvertimeRequestRepository(db)
+	activityRequestRepo := repositories.NewActivityRequestRepository(db)
+	scheduleOverrideRepo := repositories.NewUserScheduleOverrideRepository(db)
+	attendanceRepo := repositories.NewAttendanceRepository(db)
 
 	// ── Seed permissions + system roles + sample data ─────────────────────────
 	// All three gated together behind DB_SEED — turn off once a production
@@ -84,6 +90,12 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	balanceTxSvc := services.NewBalanceTransactionService(balanceTxRepo)
 	dailyStartBalanceSvc := services.NewDailyStartBalanceService(dailyStartBalanceRepo, userRepo, companyBankRepo, productTypeRepo, depositRepo, withdrawalRepo, balanceTxRepo)
 	auditLogSvc := services.NewAuditLogService(auditLogRepo)
+	leaveTypeSvc := services.NewLeaveTypeService(leaveTypeRepo, leaveRequestRepo)
+	leaveRequestSvc := services.NewLeaveRequestService(leaveRequestRepo, leaveTypeRepo, userRepo)
+	overtimeRequestSvc := services.NewOvertimeRequestService(overtimeRequestRepo, userRepo)
+	attendanceSvc := services.NewAttendanceService(attendanceRepo, branchRepo, activityRequestRepo, userRepo, scheduleOverrideRepo, leaveRequestRepo)
+	scheduleOverrideSvc := services.NewUserScheduleOverrideService(scheduleOverrideRepo)
+	activityRequestSvc := services.NewActivityRequestService(activityRequestRepo, attendanceRepo)
 
 	// ── Controllers ───────────────────────────────────────────────────────────
 	authCtrl := controllers.NewAuthController(authSvc)
@@ -109,6 +121,14 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	balanceTxCtrl := controllers.NewBalanceTransactionController(balanceTxSvc)
 	dailyStartBalanceCtrl := controllers.NewDailyStartBalanceController(dailyStartBalanceSvc)
 	auditLogCtrl := controllers.NewAuditLogController(auditLogSvc)
+	leaveTypeCtrl := controllers.NewLeaveTypeController(leaveTypeSvc)
+	leaveRequestCtrl := controllers.NewLeaveRequestController(leaveRequestSvc)
+	overtimeRequestCtrl := controllers.NewOvertimeRequestController(overtimeRequestSvc)
+	attendanceCtrl := controllers.NewAttendanceController(attendanceSvc)
+	payrollExportSvc := services.NewPayrollExportService(userRepo, attendanceSvc, overtimeRequestRepo, leaveTypeRepo, leaveRequestRepo)
+	payrollExportCtrl := controllers.NewPayrollExportController(payrollExportSvc)
+	scheduleOverrideCtrl := controllers.NewUserScheduleOverrideController(scheduleOverrideSvc)
+	activityRequestCtrl := controllers.NewActivityRequestController(activityRequestSvc, attendanceSvc)
 
 	// ── API v1 ────────────────────────────────────────────────────────────────
 	// Inject db into context for controllers that need raw queries
@@ -130,6 +150,13 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	RegisterBranchRoutes(v1, branchCtrl)
 	RegisterDailyStartBalanceRoutes(v1, dailyStartBalanceCtrl, userRepo)
 	RegisterAuditLogRoutes(v1, auditLogCtrl, userRepo)
+	RegisterLeaveTypeRoutes(v1, leaveTypeCtrl, userRepo)
+	RegisterLeaveRequestRoutes(v1, leaveRequestCtrl, userRepo)
+	RegisterOvertimeRequestRoutes(v1, overtimeRequestCtrl, userRepo)
+	RegisterActivityRequestRoutes(v1, activityRequestCtrl, userRepo)
+	RegisterAttendanceRoutes(v1, attendanceCtrl, userRepo)
+	RegisterPayrollExportRoutes(v1, payrollExportCtrl, userRepo)
+	RegisterScheduleOverrideRoutes(v1, scheduleOverrideCtrl, userRepo)
 
 	return r
 }

@@ -100,6 +100,15 @@ func (s *userService) AdminCreateUser(req userdto.AdminCreateUserRequest) (*mode
 		Name: req.Name, Email: req.Email, PasswordHash: hash,
 		RoleID: roleID, ParentID: parentID, IsActive: true,
 	}
+	if req.ShiftCheckInTime != nil {
+		user.ShiftCheckInTime = req.ShiftCheckInTime
+	}
+	if req.ShiftCheckOutTime != nil {
+		user.ShiftCheckOutTime = req.ShiftCheckOutTime
+	}
+	if req.ShiftType != nil && (*req.ShiftType == "normal" || *req.ShiftType == "cross_day") {
+		user.ShiftType = *req.ShiftType
+	}
 	if err := s.userRepo.Create(user); err != nil {
 		return nil, err
 	}
@@ -123,38 +132,27 @@ func (s *userService) AdminUpdateUser(targetID uint, req userdto.AdminUpdateUser
 	if req.Name != nil {
 		target.Name = *req.Name
 	}
+	if req.ShiftCheckInTime != nil {
+		target.ShiftCheckInTime = req.ShiftCheckInTime
+	}
+	if req.ShiftCheckOutTime != nil {
+		target.ShiftCheckOutTime = req.ShiftCheckOutTime
+	}
+	if req.ShiftType != nil && (*req.ShiftType == "normal" || *req.ShiftType == "cross_day") {
+		target.ShiftType = *req.ShiftType
+	}
 	if req.IsActive != nil {
 		target.IsActive = *req.IsActive
 	}
 	if req.RoleID != nil {
-		var newRoleID *uint
 		if *req.RoleID == 0 {
-			newRoleID = nil
+			target.RoleID = nil
 		} else {
 			if _, err := s.roleRepo.FindByID(*req.RoleID); err != nil {
 				return nil, errors.New("role not found")
 			}
-			newRoleID = req.RoleID
+			target.RoleID = req.RoleID
 		}
-
-		// The JWT bakes in the user's role name at login time (see
-		// utils.GenerateToken / middlewares.Auth's RequireRoles check),
-		// and nothing re-reads that from the DB per-request. So if this
-		// actually changes the role, an already-issued token for this
-		// user would keep authorizing against the OLD role indefinitely
-		// — until it happened to expire or they manually logged out.
-		// Bumping TokenVersion reuses the existing "one session per
-		// device" mechanism to force that immediately: their current
-		// token fails the TokenVersion check on its very next request,
-		// requiring a fresh login that issues a token with the correct
-		// new role/permissions.
-		oldRoleID := target.RoleID
-		changed := (oldRoleID == nil) != (newRoleID == nil) ||
-			(oldRoleID != nil && newRoleID != nil && *oldRoleID != *newRoleID)
-		if changed {
-			target.TokenVersion++
-		}
-		target.RoleID = newRoleID
 	}
 
 	// 0 = make root user. Otherwise re-parent the target under the given
@@ -261,6 +259,15 @@ func (s *userService) CreateSubUser(callerID uint, req userdto.CreateSubUserRequ
 		Name: req.Name, Email: req.Email, PasswordHash: hash,
 		RoleID: roleID, IsActive: true, ParentID: &callerID,
 	}
+	if req.ShiftCheckInTime != nil {
+		user.ShiftCheckInTime = req.ShiftCheckInTime
+	}
+	if req.ShiftCheckOutTime != nil {
+		user.ShiftCheckOutTime = req.ShiftCheckOutTime
+	}
+	if req.ShiftType != nil && (*req.ShiftType == "normal" || *req.ShiftType == "cross_day") {
+		user.ShiftType = *req.ShiftType
+	}
 	if err := s.userRepo.Create(user); err != nil {
 		return nil, err
 	}
@@ -325,6 +332,15 @@ func (s *userService) UpdateSubUser(callerID uint, targetID uint, req userdto.Up
 	if req.Name != nil {
 		target.Name = *req.Name
 	}
+	if req.ShiftCheckInTime != nil {
+		target.ShiftCheckInTime = req.ShiftCheckInTime
+	}
+	if req.ShiftCheckOutTime != nil {
+		target.ShiftCheckOutTime = req.ShiftCheckOutTime
+	}
+	if req.ShiftType != nil && (*req.ShiftType == "normal" || *req.ShiftType == "cross_day") {
+		target.ShiftType = *req.ShiftType
+	}
 	if req.IsActive != nil {
 		target.IsActive = *req.IsActive
 	}
@@ -340,14 +356,6 @@ func (s *userService) UpdateSubUser(callerID uint, targetID uint, req userdto.Up
 					return nil, errors.New("cannot assign permission '" + p.DisplayName + "' — you do not have it yourself")
 				}
 			}
-		}
-		// Same reasoning as AdminUpdateUser above: bump TokenVersion so
-		// this user's current token — which still carries their old role
-		// name — stops being accepted immediately, forcing a fresh login
-		// that picks up the new role/permissions.
-		oldRoleID := target.RoleID
-		if (oldRoleID == nil) || *oldRoleID != *req.RoleID {
-			target.TokenVersion++
 		}
 		target.RoleID = req.RoleID
 	}

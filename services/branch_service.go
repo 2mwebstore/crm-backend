@@ -25,6 +25,14 @@ type BranchInput struct {
 	TelegramChatID            string
 	TelegramDepositTopicID    *int
 	TelegramWithdrawalTopicID *int
+
+	// Attendance geofence — see models.Branch for field meaning. All
+	// optional; nil Latitude/Longitude means distance can't be validated
+	// for this branch (AttendanceService fails closed on that, rather
+	// than silently skipping the check).
+	Latitude            *float64
+	Longitude           *float64
+	CheckInRadiusMeters int
 }
 
 type BranchService interface {
@@ -53,6 +61,9 @@ func (s *branchService) Create(createdByID uint, input BranchInput) (*models.Bra
 		TelegramChatID:            input.TelegramChatID,
 		TelegramDepositTopicID:    input.TelegramDepositTopicID,
 		TelegramWithdrawalTopicID: input.TelegramWithdrawalTopicID,
+		Latitude:                  input.Latitude,
+		Longitude:                 input.Longitude,
+		CheckInRadiusMeters:       input.CheckInRadiusMeters,
 	}
 	if err := s.repo.Create(b); err != nil {
 		return nil, err
@@ -92,6 +103,9 @@ func (s *branchService) Update(id uint, input BranchInput) (*models.Branch, erro
 	b.TelegramChatID = input.TelegramChatID
 	b.TelegramDepositTopicID = input.TelegramDepositTopicID
 	b.TelegramWithdrawalTopicID = input.TelegramWithdrawalTopicID
+	b.Latitude = input.Latitude
+	b.Longitude = input.Longitude
+	b.CheckInRadiusMeters = input.CheckInRadiusMeters
 	if err := s.repo.Update(b); err != nil {
 		return nil, err
 	}

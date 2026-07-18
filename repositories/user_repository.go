@@ -393,7 +393,7 @@ func (r *userRepository) GetUsersInScope(userID uint) ([]models.User, error) {
 	r.db.Raw("SELECT is_super_admin FROM users WHERE id = ?", userID).Scan(&isSA)
 	if isSA {
 		var users []models.User
-		err := r.db.Select("id, name, email").Find(&users).Error
+		err := r.db.Select("id, name, email, is_active").Preload("Branches").Find(&users).Error
 		return users, err
 	}
 	// Get caller's branches
@@ -401,13 +401,13 @@ func (r *userRepository) GetUsersInScope(userID uint) ([]models.User, error) {
 	r.db.Raw("SELECT branch_id FROM user_branches WHERE user_id = ?", userID).Scan(&branchIDs)
 	if len(branchIDs) == 0 {
 		var users []models.User
-		err := r.db.Select("id, name, email").Where("id = ?", userID).Find(&users).Error
+		err := r.db.Select("id, name, email, is_active").Preload("Branches").Where("id = ?", userID).Find(&users).Error
 		return users, err
 	}
 	// Get all users in those branches
 	var userIDs []uint
 	r.db.Raw("SELECT DISTINCT user_id FROM user_branches WHERE branch_id IN ?", branchIDs).Scan(&userIDs)
 	var users []models.User
-	err := r.db.Select("id, name, email").Where("id IN ?", userIDs).Find(&users).Error
+	err := r.db.Select("id, name, email, is_active").Preload("Branches").Where("id IN ?", userIDs).Find(&users).Error
 	return users, err
 }

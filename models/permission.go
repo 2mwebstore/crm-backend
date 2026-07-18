@@ -246,9 +246,82 @@ const (
 	// closes out shifts opened by regular staff.
 	PermDailyBalanceStart = "daily_balance.start"
 	PermDailyBalanceClose = "daily_balance.close"
+)
 
-	PermAuditLogView   = "audit_logs.view"
+const (
+	// PermAuditLogView gates the audit log viewer — deliberately its own,
+	// separate permission (not folded into an existing group), since being
+	// able to see every user's actions across every branch is more
+	// sensitive than most individual "view" permissions.
+	PermAuditLogView = "audit_logs.view"
+	// PermAuditLogDelete gates bulk-deleting old audit log entries —
+	// separate from PermAuditLogView since being able to permanently
+	// erase audit history is a meaningfully more destructive action than
+	// just reading it, and shouldn't be implied by view access alone.
 	PermAuditLogDelete = "audit_logs.delete"
+)
+
+const (
+	// Leave Types — admin-managed lookup (Sick, AL, Day Off, etc.),
+	// standard View/Create/Edit/Delete like every other lookup entity.
+	PermLeaveTypeView   = "leave_types.view"
+	PermLeaveTypeCreate = "leave_types.create"
+	PermLeaveTypeEdit   = "leave_types.edit"
+	PermLeaveTypeDelete = "leave_types.delete"
+
+	// PermAttendanceView gates seeing OTHER people's check-in/check-out
+	// records (the list/report view).
+	PermAttendanceView = "attendance.view"
+	// PermAttendanceEdit gates correcting an existing attendance record's
+	// check-in/check-out timestamps (e.g. a forgotten punch) — separate
+	// from View since being able to alter the record is meaningfully
+	// more sensitive than just reading it.
+	PermAttendanceEdit = "attendance.edit"
+	// PermAttendanceRequest gates a user's own self-service check-in/
+	// check-out (the "My Attendance" page) — sibling to View/Edit above,
+	// not a prerequisite for them. A user with none of View, Edit, or
+	// Request sees nothing under Attendance at all; a user with only
+	// Request can check themselves in/out but can't see anyone else's
+	// records or correct anything.
+	PermAttendanceRequest = "attendance.request"
+	// PermAttendanceReportView gates the whole "Report" sub-menu as one —
+	// Report Attendance, Attendance Detail, Report Leave, Report
+	// Overtime, Report Activity — separate from each feature's own View
+	// permission above, which only gates the ordinary List pages. A user
+	// can have View (see the List page) without Report (see the
+	// aggregated report pages), or vice versa.
+	PermAttendanceReportView = "attendance_reports.view"
+
+	// PermLeaveRequestView/Approve — Leave requests specifically.
+	PermLeaveRequestView    = "leave_requests.view"
+	PermLeaveRequestApprove = "leave_requests.approve"
+	// PermLeaveRequestSubmit gates a user's own self-service Leave
+	// submission (create/edit reason/cancel/see own — the "Leave
+	// Request" page) — sibling to View/Approve above, not a prerequisite
+	// for them, matching PermAttendanceRequest's pattern.
+	PermLeaveRequestSubmit = "leave_requests.request"
+
+	// PermOvertimeRequestView/Approve — Overtime requests specifically.
+	PermOvertimeRequestView    = "overtime_requests.view"
+	PermOvertimeRequestApprove = "overtime_requests.approve"
+	// PermOvertimeRequestSubmit gates a user's own self-service Overtime
+	// submission — sibling to View/Approve above, same pattern as Leave.
+	PermOvertimeRequestSubmit = "overtime_requests.request"
+
+	// PermActivityRequestView — Activity requests specifically. No
+	// approve permission: these always auto-approve on submission,
+	// there's nothing to manually approve/reject.
+	PermActivityRequestView = "activity_requests.view"
+	// PermActivityRequestSubmit gates a user's own self-service Activity
+	// submission — sibling to View above, same pattern as Leave/Overtime.
+	PermActivityRequestSubmit = "activity_requests.request"
+	// Schedule Overrides — temporary date-range shift-time overrides for
+	// staff, standard View/Create/Edit/Delete like other admin-managed
+	// entities.
+	PermScheduleOverrideView   = "schedule_overrides.view"
+	PermScheduleOverrideCreate = "schedule_overrides.create"
+	PermScheduleOverrideEdit   = "schedule_overrides.edit"
+	PermScheduleOverrideDelete = "schedule_overrides.delete"
 )
 
 func init() {
@@ -268,5 +341,25 @@ func init() {
 		Permission{Name: PermDailyBalanceClose, DisplayName: "Close Shift", Group: "daily_balance", Description: "Close the currently open Daily Balance shift for a branch"},
 		Permission{Name: PermAuditLogView, DisplayName: "View Audit Log", Group: "audit_logs", Description: "View the full record of every user's actions across every branch"},
 		Permission{Name: PermAuditLogDelete, DisplayName: "Delete Audit Log Entries", Group: "audit_logs", Description: "Permanently delete old audit log entries (e.g. older than a week/month)"},
+		Permission{Name: PermLeaveTypeView, DisplayName: "View Leave Types", Group: "leave_types", Description: "View leave type categories"},
+		Permission{Name: PermLeaveTypeCreate, DisplayName: "Create Leave Types", Group: "leave_types", Description: "Create leave type categories"},
+		Permission{Name: PermLeaveTypeEdit, DisplayName: "Edit Leave Types", Group: "leave_types", Description: "Edit leave type categories"},
+		Permission{Name: PermLeaveTypeDelete, DisplayName: "Delete Leave Types", Group: "leave_types", Description: "Delete leave type categories"},
+		Permission{Name: PermAttendanceView, DisplayName: "View Attendance", Group: "attendance", Description: "View other staff members' check-in/check-out records"},
+		Permission{Name: PermAttendanceEdit, DisplayName: "Edit Attendance", Group: "attendance", Description: "Correct an existing attendance record's check-in/check-out timestamps"},
+		Permission{Name: PermAttendanceRequest, DisplayName: "Request Attendance", Group: "attendance", Description: "Check yourself in/out and see your own attendance status (My Attendance)"},
+		Permission{Name: PermAttendanceReportView, DisplayName: "View Reports", Group: "attendance", Description: "See the Report sub-menu — Report Attendance, Attendance Detail, Report Leave, Report Overtime, Report Activity"},
+		Permission{Name: PermLeaveRequestView, DisplayName: "View Leave Requests", Group: "leave_requests", Description: "View other staff members' Leave requests"},
+		Permission{Name: PermLeaveRequestApprove, DisplayName: "Approve Leave Requests", Group: "leave_requests", Description: "Approve or reject Leave requests"},
+		Permission{Name: PermLeaveRequestSubmit, DisplayName: "Request Leave", Group: "leave_requests", Description: "Submit your own Leave requests (Leave Request page)"},
+		Permission{Name: PermOvertimeRequestView, DisplayName: "View Overtime Requests", Group: "overtime_requests", Description: "View other staff members' Overtime requests"},
+		Permission{Name: PermOvertimeRequestApprove, DisplayName: "Approve Overtime Requests", Group: "overtime_requests", Description: "Approve or reject Overtime requests"},
+		Permission{Name: PermOvertimeRequestSubmit, DisplayName: "Request Overtime", Group: "overtime_requests", Description: "Submit your own Overtime requests (Overtime Request page)"},
+		Permission{Name: PermActivityRequestView, DisplayName: "View Activity Requests", Group: "activity_requests", Description: "View other staff members' Activity requests"},
+		Permission{Name: PermActivityRequestSubmit, DisplayName: "Request Activity", Group: "activity_requests", Description: "Submit your own Activity requests (Activity Request page)"},
+		Permission{Name: PermScheduleOverrideView, DisplayName: "View Schedule Overrides", Group: "schedule_overrides", Description: "View staff members' temporary date-range shift-time overrides"},
+		Permission{Name: PermScheduleOverrideCreate, DisplayName: "Create Schedule Overrides", Group: "schedule_overrides", Description: "Assign a temporary date-range shift-time override for a staff member"},
+		Permission{Name: PermScheduleOverrideEdit, DisplayName: "Edit Schedule Overrides", Group: "schedule_overrides", Description: "Edit an existing schedule override"},
+		Permission{Name: PermScheduleOverrideDelete, DisplayName: "Delete Schedule Overrides", Group: "schedule_overrides", Description: "Delete a schedule override"},
 	)
 }

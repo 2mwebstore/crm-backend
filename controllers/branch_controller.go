@@ -41,13 +41,16 @@ func (ctrl *BranchController) GetByID(c *gin.Context) {
 
 func (ctrl *BranchController) Create(c *gin.Context) {
 	var body struct {
-		Name                      string `json:"name" binding:"required"`
-		Code                      string `json:"code" binding:"required"`
-		Description               string `json:"description"`
-		TelegramBotToken          string `json:"telegram_bot_token"`
-		TelegramChatID            string `json:"telegram_chat_id"`
-		TelegramDepositTopicID    *int   `json:"telegram_deposit_topic_id"`
-		TelegramWithdrawalTopicID *int   `json:"telegram_withdrawal_topic_id"`
+		Name                      string   `json:"name" binding:"required"`
+		Code                      string   `json:"code" binding:"required"`
+		Description               string   `json:"description"`
+		TelegramBotToken          string   `json:"telegram_bot_token"`
+		TelegramChatID            string   `json:"telegram_chat_id"`
+		TelegramDepositTopicID    *int     `json:"telegram_deposit_topic_id"`
+		TelegramWithdrawalTopicID *int     `json:"telegram_withdrawal_topic_id"`
+		Latitude                  *float64 `json:"latitude"`
+		Longitude                 *float64 `json:"longitude"`
+		CheckInRadiusMeters       int      `json:"check_in_radius_meters"`
 	}
 	if err := utils.BindJSON(c, &body); err != nil {
 		utils.BadRequest(c, err.Error())
@@ -61,6 +64,9 @@ func (ctrl *BranchController) Create(c *gin.Context) {
 		TelegramChatID:            body.TelegramChatID,
 		TelegramDepositTopicID:    body.TelegramDepositTopicID,
 		TelegramWithdrawalTopicID: body.TelegramWithdrawalTopicID,
+		Latitude:                  body.Latitude,
+		Longitude:                 body.Longitude,
+		CheckInRadiusMeters:       body.CheckInRadiusMeters,
 	})
 	if err != nil {
 		utils.Conflict(c, err.Error())
@@ -72,14 +78,17 @@ func (ctrl *BranchController) Create(c *gin.Context) {
 func (ctrl *BranchController) Update(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var body struct {
-		Name                      string `json:"name"`
-		Code                      string `json:"code"`
-		Description               string `json:"description"`
-		IsActive                  bool   `json:"is_active"`
-		TelegramBotToken          string `json:"telegram_bot_token"`
-		TelegramChatID            string `json:"telegram_chat_id"`
-		TelegramDepositTopicID    *int   `json:"telegram_deposit_topic_id"`
-		TelegramWithdrawalTopicID *int   `json:"telegram_withdrawal_topic_id"`
+		Name                      string   `json:"name"`
+		Code                      string   `json:"code"`
+		Description               string   `json:"description"`
+		IsActive                  bool     `json:"is_active"`
+		TelegramBotToken          string   `json:"telegram_bot_token"`
+		TelegramChatID            string   `json:"telegram_chat_id"`
+		TelegramDepositTopicID    *int     `json:"telegram_deposit_topic_id"`
+		TelegramWithdrawalTopicID *int     `json:"telegram_withdrawal_topic_id"`
+		Latitude                  *float64 `json:"latitude"`
+		Longitude                 *float64 `json:"longitude"`
+		CheckInRadiusMeters       int      `json:"check_in_radius_meters"`
 	}
 	if err := utils.BindJSON(c, &body); err != nil {
 		utils.BadRequest(c, err.Error())
@@ -94,6 +103,9 @@ func (ctrl *BranchController) Update(c *gin.Context) {
 		TelegramChatID:            body.TelegramChatID,
 		TelegramDepositTopicID:    body.TelegramDepositTopicID,
 		TelegramWithdrawalTopicID: body.TelegramWithdrawalTopicID,
+		Latitude:                  body.Latitude,
+		Longitude:                 body.Longitude,
+		CheckInRadiusMeters:       body.CheckInRadiusMeters,
 	})
 	if err != nil {
 		utils.BadRequest(c, err.Error())

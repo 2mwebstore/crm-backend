@@ -34,6 +34,19 @@ type Branch struct {
 	TelegramDepositTopicID    *int `json:"telegram_deposit_topic_id,omitempty"`
 	TelegramWithdrawalTopicID *int `json:"telegram_withdrawal_topic_id,omitempty"`
 
+	// Attendance geofence — where check-in/check-out distance is measured
+	// from. Both nil means this branch has no location configured yet,
+	// which the attendance service treats as "can't validate distance" —
+	// see AttendanceService for how that's handled (fails closed, not
+	// silently allowed).
+	Latitude  *float64 `gorm:"type:decimal(10,7)" json:"latitude,omitempty"`
+	Longitude *float64 `gorm:"type:decimal(10,7)" json:"longitude,omitempty"`
+	// CheckInRadiusMeters is how far from (Latitude, Longitude) a normal
+	// check-in/check-out is still allowed. 0 falls back to a sane default
+	// (200m) at the service layer rather than allowing an unbounded
+	// radius by accident.
+	CheckInRadiusMeters int `gorm:"default:200" json:"check_in_radius_meters"`
+
 	CreatedByID uint      `gorm:"index;default:0" json:"created_by_id"`
 	CreatedBy   *User     `gorm:"foreignKey:CreatedByID" json:"created_by,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
