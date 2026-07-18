@@ -118,6 +118,20 @@ func todayDateString() string {
 	return nowInCambodia().Format("2006-01-02")
 }
 
+// parseDateOnly parses a "YYYY-MM-DD" string (as produced by
+// todayDateString/normalizeDate) into the time.Time value
+// Attendance.Date expects, in the app's Cambodia timezone. Falls back to
+// today (Cambodia) if s is somehow malformed — this should never happen
+// in practice since callers only ever pass a value that was itself
+// produced by todayDateString(), but a safe fallback beats a panic.
+func parseDateOnly(s string) time.Time {
+	t, err := time.ParseInLocation("2006-01-02", s, cambodiaLoc)
+	if err != nil {
+		return nowInCambodia()
+	}
+	return t
+}
+
 // parseHHMMToMinutes converts "HH:MM" to minutes-since-midnight, or ok=false
 // if the string isn't in that exact shape.
 func parseHHMMToMinutes(s string) (minutes int, ok bool) {
@@ -320,7 +334,7 @@ func (s *attendanceService) CheckIn(userID, branchID uint, lat, lng float64, rea
 	att := &models.Attendance{
 		UserID:             userID,
 		BranchID:           branchID,
-		Date:               today,
+		Date:               parseDateOnly(today),
 		CheckInAt:          &now,
 		CheckInLat:         &lat,
 		CheckInLng:         &lng,
@@ -399,7 +413,7 @@ func (s *attendanceService) CheckOut(userID, branchID uint, lat, lng float64, re
 	var status string
 	effectiveDate := today
 	if hasRow {
-		effectiveDate = att.Date
+		effectiveDate = att.Date.Format("2006-01-02")
 	}
 	_, shiftCheckOut := s.resolveShiftTimes(userID, effectiveDate)
 	status = computeCheckOutTimeliness(now.Format("15:04"), shiftCheckOut)
@@ -415,7 +429,7 @@ func (s *attendanceService) CheckOut(userID, branchID uint, lat, lng float64, re
 		att = &models.Attendance{
 			UserID:   userID,
 			BranchID: branchID,
-			Date:     today,
+			Date:     parseDateOnly(today),
 		}
 	}
 	att.CheckOutAt = &now
@@ -475,7 +489,7 @@ func (s *attendanceService) AdminUpdate(id uint, checkInAtStr, checkOutAtStr str
 		return nil, errors.New("attendance record not found")
 	}
 
-	shiftCheckIn, shiftCheckOut := s.resolveShiftTimes(att.UserID, att.Date)
+	shiftCheckIn, shiftCheckOut := s.resolveShiftTimes(att.UserID, att.Date.Format("2006-01-02"))
 
 	if checkInAtStr != "" {
 		t, perr := time.ParseInLocation("2006-01-02T15:04", checkInAtStr, cambodiaLoc)
@@ -625,7 +639,7 @@ func (s *attendanceService) Summary(callerID uint, dateFrom, dateTo string, user
 		if attByUser[a.UserID] == nil {
 			attByUser[a.UserID] = map[string]models.Attendance{}
 		}
-		attByUser[a.UserID][normalizeDate(a.Date)] = a
+		attByUser[a.UserID][a.Date.Format("2006-01-02")] = a
 		addBranch(a.UserID, a.Branch)
 	}
 

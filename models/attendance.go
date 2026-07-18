@@ -12,7 +12,7 @@ type Attendance struct {
 	BranchID uint    `gorm:"not null;index" json:"branch_id"`
 	Branch   *Branch `gorm:"foreignKey:BranchID" json:"branch,omitempty"`
 
-	Date string `gorm:"type:date;not null;uniqueIndex:idx_attendance_user_date" json:"date"` // YYYY-MM-DD, Asia/Phnom_Penh
+	Date time.Time `gorm:"type:date;not null;uniqueIndex:idx_attendance_user_date" json:"date"` // Asia/Phnom_Penh calendar day, time-of-day component unused
 
 	CheckInAt       *time.Time `json:"check_in_at,omitempty"`
 	CheckInLat      *float64   `gorm:"type:decimal(10,7)" json:"check_in_lat,omitempty"`
