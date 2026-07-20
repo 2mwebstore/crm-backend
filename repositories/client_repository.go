@@ -115,7 +115,7 @@ func (r *clientRepository) List(f clientdto.ClientFilterQuery, p utils.Paginatio
 	if !isSA && len(branchIDs) == 0 {
 		return []models.Client{}, 0, nil
 	}
-	q := r.preload(r.db.Model(&models.Client{}))
+	q := r.preload(r.db.Debug().Model(&models.Client{}))
 
 	if !isSA {
 		q = q.Where("clients.branch_id IN ?", branchIDs)
