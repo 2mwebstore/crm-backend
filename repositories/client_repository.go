@@ -120,9 +120,13 @@ func (r *clientRepository) List(f clientdto.ClientFilterQuery, p utils.Paginatio
 	if !isSA {
 		q = q.Where("clients.branch_id IN ?", branchIDs)
 	}
-	if f.Search != "" {
-		like := "%" + strings.ToLower(f.Search) + "%"
-		q = q.Where("LOWER(clients.name) LIKE ? OR clients.code LIKE ?", like, like)
+	if search := strings.TrimSpace(f.Search); search != "" {
+		like := "%" + search + "%"
+	
+		q = q.Where(`
+			clients.name LIKE ?
+			OR clients.code LIKE ?
+		`, like, like)
 	}
 	if f.IsActive != nil {
 		q = q.Where("clients.is_active = ?", *f.IsActive)
