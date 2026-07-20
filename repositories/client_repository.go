@@ -3,7 +3,7 @@ package repositories
 import (
 	"strings"
 	"time"
-
+     "log"
 	"gorm.io/gorm"
 
 	clientdto "crm-backend/dto/client"
@@ -122,12 +122,9 @@ func (r *clientRepository) List(f clientdto.ClientFilterQuery, p utils.Paginatio
 	}
 	if search := strings.TrimSpace(f.Search); search != "" {
 		like := "%" + search + "%"
-	
-		q = q.Where(`
-			clients.name LIKE ?
-			OR clients.code LIKE ?
-		`, like, like)
+		q = q.Where("clients.name LIKE ? OR clients.code LIKE ?", like, like)
 	}
+	log.Printf("Search received: %q", f.Search)
 	if f.IsActive != nil {
 		q = q.Where("clients.is_active = ?", *f.IsActive)
 	}
