@@ -131,7 +131,7 @@ func (r *clientRepository) List(f clientdto.ClientFilterQuery, p utils.Paginatio
 		q = q.Where("clients.branch_id = ?", *f.BranchID)
 	}
 	if f.CreatedByID != nil {
-		q = q.Where("interesting_clients.created_by_id = ?", *f.CreatedByID)
+		q = q.Where("clients.created_by_id = ?", *f.CreatedByID)
 	}
 	if f.LevelID != nil {
 		q = q.Where("clients.level_id = ?", *f.LevelID)
