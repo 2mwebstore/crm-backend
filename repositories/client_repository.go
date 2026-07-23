@@ -35,6 +35,11 @@ type ClientRepository interface {
 	FindBank(id uint) (*models.ClientBank, error)
 	UpdateBank(bank *models.ClientBank) error
 	DeleteBank(id uint) error
+	// HasTransactionsForBank reports whether any Deposit or Withdrawal
+	// references this bank account — checked before allowing a delete,
+	// since both tables store a non-nullable client_bank_id foreign key
+	// that would otherwise point at a deleted row.
+	HasTransactionsForBank(bankID uint) (bool, error)
 
 	// Product (Player) section
 	DeleteProducts(clientID uint) error
@@ -44,6 +49,9 @@ type ClientRepository interface {
 	FindProduct(id uint) (*models.ClientProduct, error)
 	UpdateProduct(product *models.ClientProduct) error
 	DeleteProduct(id uint) error
+	// HasTransactionsForProduct mirrors HasTransactionsForBank above, for
+	// the client_product_id foreign key instead.
+	HasTransactionsForProduct(productID uint) (bool, error)
 
 	// Follow Up section
 	CreateFollowUp(fu *models.ClientFollowUp) error
@@ -216,6 +224,24 @@ func (r *clientRepository) DeleteBank(id uint) error {
 	return r.db.Delete(&models.ClientBank{}, id).Error
 }
 
+// HasTransactionsForBank checks both the deposits and withdrawals tables
+// directly (raw table names, not the Deposit/Withdrawal Go models) to
+// avoid this repository needing to import the transactions domain just
+// for a single existence check.
+func (r *clientRepository) HasTransactionsForBank(bankID uint) (bool, error) {
+	var count int64
+	if err := r.db.Table("deposits").Where("client_bank_id = ?", bankID).Count(&count).Error; err != nil {
+		return false, err
+	}
+	if count > 0 {
+		return true, nil
+	}
+	if err := r.db.Table("withdrawals").Where("client_bank_id = ?", bankID).Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 // ── Product ───────────────────────────────────────────────────────────────────
 
 func (r *clientRepository) DeleteProducts(clientID uint) error {
@@ -242,6 +268,22 @@ func (r *clientRepository) FindProduct(id uint) (*models.ClientProduct, error) {
 func (r *clientRepository) UpdateProduct(p *models.ClientProduct) error { return r.db.Save(p).Error }
 func (r *clientRepository) DeleteProduct(id uint) error {
 	return r.db.Delete(&models.ClientProduct{}, id).Error
+}
+
+// HasTransactionsForProduct mirrors HasTransactionsForBank, for
+// client_product_id instead.
+func (r *clientRepository) HasTransactionsForProduct(productID uint) (bool, error) {
+	var count int64
+	if err := r.db.Table("deposits").Where("client_product_id = ?", productID).Count(&count).Error; err != nil {
+		return false, err
+	}
+	if count > 0 {
+		return true, nil
+	}
+	if err := r.db.Table("withdrawals").Where("client_product_id = ?", productID).Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 // ── Follow Up ─────────────────────────────────────────────────────────────────

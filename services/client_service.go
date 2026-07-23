@@ -243,12 +243,35 @@ func (s *clientService) syncBanks(clientID uint, existing []models.ClientBank, i
 		existingByID[e.ID] = e
 	}
 	keep := map[uint]bool{}
-	var toCreate []models.ClientBank
+	for _, in := range inputs {
+		if in.ID != nil {
+			if _, ok := existingByID[*in.ID]; ok {
+				keep[*in.ID] = true
+			}
+		}
+	}
 
+	// Validate every removal BEFORE any mutation happens — so if one bank
+	// further down the list turns out to have transactions, the whole
+	// update fails cleanly instead of leaving earlier banks already
+	// updated/created while this one gets blocked.
+	for _, e := range existing {
+		if keep[e.ID] {
+			continue
+		}
+		hasTx, err := s.repo.HasTransactionsForBank(e.ID)
+		if err != nil {
+			return err
+		}
+		if hasTx {
+			return errors.New("cannot delete bank account " + e.AccountNo + " — it has deposit or withdrawal records. Please delete those transactions first")
+		}
+	}
+
+	var toCreate []models.ClientBank
 	for _, in := range inputs {
 		if in.ID != nil {
 			if e, ok := existingByID[*in.ID]; ok {
-				keep[*in.ID] = true
 				e.BankTypeID = in.BankTypeID
 				e.AccountNo = in.AccountNo
 				e.AccountName = in.AccountName
@@ -294,10 +317,12 @@ func (s *clientService) syncProducts(clientID uint, existing []models.ClientProd
 	}
 
 	keepIDs := make([]uint, 0, len(inputs))
+	keep := map[uint]bool{}
 	for _, in := range inputs {
 		if in.ID != nil {
 			if _, ok := existingByID[*in.ID]; ok {
 				keepIDs = append(keepIDs, *in.ID)
+				keep[*in.ID] = true
 			}
 		}
 	}
@@ -305,13 +330,25 @@ func (s *clientService) syncProducts(clientID uint, existing []models.ClientProd
 		return err
 	}
 
-	keep := map[uint]bool{}
-	var toCreate []models.ClientProduct
+	// Same "validate every removal before any mutation" reasoning as
+	// syncBanks above.
+	for _, e := range existing {
+		if keep[e.ID] {
+			continue
+		}
+		hasTx, err := s.repo.HasTransactionsForProduct(e.ID)
+		if err != nil {
+			return err
+		}
+		if hasTx {
+			return errors.New("cannot delete product " + e.AccountID + " — it has deposit or withdrawal records. Please delete those transactions first")
+		}
+	}
 
+	var toCreate []models.ClientProduct
 	for _, in := range inputs {
 		if in.ID != nil {
 			if e, ok := existingByID[*in.ID]; ok {
-				keep[*in.ID] = true
 				e.ProductTypeID = in.ProductTypeID
 				e.AccountID = in.AccountID
 				e.IsActive = in.IsActive
@@ -405,6 +442,13 @@ func (s *clientService) DeleteBank(clientID, bankID uint, scopeIDs []uint) error
 	if err != nil || bank.ClientID != clientID {
 		return errors.New("bank record not found")
 	}
+	hasTx, err := s.repo.HasTransactionsForBank(bankID)
+	if err != nil {
+		return err
+	}
+	if hasTx {
+		return errors.New("cannot delete this bank account — it has deposit or withdrawal records. Please delete those transactions first")
+	}
 	return s.repo.DeleteBank(bankID)
 }
 
@@ -463,6 +507,13 @@ func (s *clientService) DeleteProduct(clientID, productID uint, scopeIDs []uint)
 	p, err := s.repo.FindProduct(productID)
 	if err != nil || p.ClientID != clientID {
 		return errors.New("product record not found")
+	}
+	hasTx, err := s.repo.HasTransactionsForProduct(productID)
+	if err != nil {
+		return err
+	}
+	if hasTx {
+		return errors.New("cannot delete this product — it has deposit or withdrawal records. Please delete those transactions first")
 	}
 	return s.repo.DeleteProduct(productID)
 }
