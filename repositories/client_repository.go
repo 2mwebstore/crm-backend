@@ -1,9 +1,10 @@
 package repositories
 
 import (
+	"log"
 	"strings"
 	"time"
-     "log"
+
 	"gorm.io/gorm"
 
 	clientdto "crm-backend/dto/client"
@@ -21,6 +22,7 @@ type ClientRepository interface {
 
 	// Phone section
 	DeletePhones(clientID uint) error
+	DeletePhone(id uint) error
 	CreatePhones(phones []models.ClientPhone) error
 	FindPhone(id uint) (*models.ClientPhone, error)
 	UpdatePhone(phone *models.ClientPhone) error
@@ -170,6 +172,9 @@ func (r *clientRepository) List(f clientdto.ClientFilterQuery, p utils.Paginatio
 
 func (r *clientRepository) DeletePhones(clientID uint) error {
 	return r.db.Exec("DELETE FROM client_phones WHERE client_id = ?", clientID).Error
+}
+func (r *clientRepository) DeletePhone(id uint) error {
+	return r.db.Delete(&models.ClientPhone{}, id).Error
 }
 func (r *clientRepository) CreatePhones(phones []models.ClientPhone) error {
 	if len(phones) == 0 {

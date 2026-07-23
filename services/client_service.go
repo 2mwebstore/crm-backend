@@ -93,7 +93,7 @@ func (s *clientService) Create(createdByID uint, req clientdto.CreateClientReque
 		}
 	}
 	if len(req.Products) > 0 {
-		if err := s.checkDuplicateAccountIDs(req.Products); err != nil {
+		if err := s.checkDuplicateAccountIDs(req.Products, nil); err != nil {
 			return nil, err
 		}
 		if err := s.repo.CreateProducts(buildClientProducts(client.ID, req.Products)); err != nil {
@@ -153,39 +153,194 @@ func (s *clientService) Update(id uint, scopeIDs []uint, req clientdto.UpdateCli
 	}
 
 	if req.Phones != nil {
-		if err := s.repo.DeletePhones(id); err != nil {
+		if err := s.syncPhones(id, client.Phones, req.Phones); err != nil {
 			return nil, err
-		}
-		if len(req.Phones) > 0 {
-			if err := s.repo.CreatePhones(buildClientPhones(id, req.Phones)); err != nil {
-				return nil, err
-			}
 		}
 	}
 	if req.Banks != nil {
-		if err := s.repo.DeleteBanks(id); err != nil {
+		if err := s.syncBanks(id, client.Banks, req.Banks); err != nil {
 			return nil, err
-		}
-		if len(req.Banks) > 0 {
-			if err := s.repo.CreateBanks(buildClientBanks(id, req.Banks)); err != nil {
-				return nil, err
-			}
 		}
 	}
 	if req.Products != nil {
-		if err := s.repo.DeleteProducts(id); err != nil {
+		if err := s.syncProducts(id, client.Products, req.Products); err != nil {
 			return nil, err
-		}
-		if len(req.Products) > 0 {
-			if err := s.checkDuplicateAccountIDs(req.Products); err != nil {
-				return nil, err
-			}
-			if err := s.repo.CreateProducts(buildClientProducts(id, req.Products)); err != nil {
-				return nil, err
-			}
 		}
 	}
 	return s.repo.FindByIDUnsafe(id)
+}
+
+// syncPhones reconciles the client's phone list against the incoming
+// request — an input with a matching ID updates that existing row in
+// place (preserving its ID/created_at), an input with no ID (or an ID
+// that doesn't belong to this client) creates a new row, and any
+// existing row whose ID isn't present in the input is deleted. This
+// replaces the previous delete-all-then-recreate approach, which
+// destroyed and regenerated every row's ID on every single edit —
+// harmless for phones specifically (nothing else references a phone by
+// ID), but the same pattern on Banks/Products below is what actually
+// mattered, since Deposit/Withdrawal transactions reference a specific
+// client_bank_id/client_product_id.
+func (s *clientService) syncPhones(clientID uint, existing []models.ClientPhone, inputs []clientdto.PhoneInput) error {
+	existingByID := make(map[uint]models.ClientPhone, len(existing))
+	for _, e := range existing {
+		existingByID[e.ID] = e
+	}
+	keep := map[uint]bool{}
+	var toCreate []models.ClientPhone
+
+	for _, in := range inputs {
+		label := in.Label
+		if label == "" {
+			label = "primary"
+		}
+		if in.ID != nil {
+			if e, ok := existingByID[*in.ID]; ok {
+				keep[*in.ID] = true
+				e.Phone = in.Phone
+				e.Label = label
+				e.IsPrimary = in.IsPrimary
+				e.IsActive = in.IsActive
+				e.SortOrder = in.SortOrder
+				if err := s.repo.UpdatePhone(&e); err != nil {
+					return err
+				}
+				continue
+			}
+			// ID given but doesn't belong to this client (or doesn't
+			// exist) — fall through and create fresh, rather than
+			// silently dropping it or touching an unrelated record.
+		}
+		toCreate = append(toCreate, models.ClientPhone{
+			ClientID: clientID, Phone: in.Phone, Label: label,
+			IsPrimary: in.IsPrimary, Status: models.PhoneStatusActive, IsActive: in.IsActive, SortOrder: in.SortOrder,
+		})
+	}
+
+	for _, e := range existing {
+		if !keep[e.ID] {
+			if err := s.repo.DeletePhone(e.ID); err != nil {
+				return err
+			}
+		}
+	}
+	if len(toCreate) > 0 {
+		if err := s.repo.CreatePhones(toCreate); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// syncBanks mirrors syncPhones — same reconcile-by-ID approach. This one
+// matters concretely: a Deposit/Withdrawal transaction stores a specific
+// client_bank_id, so replacing this bank's row wholesale on every client
+// edit would silently point existing transactions at a deleted/wrong
+// account.
+func (s *clientService) syncBanks(clientID uint, existing []models.ClientBank, inputs []clientdto.BankInput) error {
+	existingByID := make(map[uint]models.ClientBank, len(existing))
+	for _, e := range existing {
+		existingByID[e.ID] = e
+	}
+	keep := map[uint]bool{}
+	var toCreate []models.ClientBank
+
+	for _, in := range inputs {
+		if in.ID != nil {
+			if e, ok := existingByID[*in.ID]; ok {
+				keep[*in.ID] = true
+				e.BankTypeID = in.BankTypeID
+				e.AccountNo = in.AccountNo
+				e.AccountName = in.AccountName
+				e.IsActive = in.IsActive
+				e.SortOrder = in.SortOrder
+				if err := s.repo.UpdateBank(&e); err != nil {
+					return err
+				}
+				continue
+			}
+		}
+		toCreate = append(toCreate, models.ClientBank{
+			ClientID: clientID, BankTypeID: in.BankTypeID, AccountNo: in.AccountNo,
+			AccountName: in.AccountName, IsActive: in.IsActive, SortOrder: in.SortOrder,
+		})
+	}
+
+	for _, e := range existing {
+		if !keep[e.ID] {
+			if err := s.repo.DeleteBank(e.ID); err != nil {
+				return err
+			}
+		}
+	}
+	if len(toCreate) > 0 {
+		if err := s.repo.CreateBanks(toCreate); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// syncProducts mirrors syncBanks — same reconcile-by-ID approach, plus the
+// duplicate account_id pre-check. That check now excludes the products
+// being kept/updated from its own-DB-row comparison — otherwise a product
+// keeping its unchanged account_id would falsely collide with its own
+// pre-existing row, since (unlike the old delete-first approach) that row
+// is no longer removed before the check runs.
+func (s *clientService) syncProducts(clientID uint, existing []models.ClientProduct, inputs []clientdto.ProductInput) error {
+	existingByID := make(map[uint]models.ClientProduct, len(existing))
+	for _, e := range existing {
+		existingByID[e.ID] = e
+	}
+
+	keepIDs := make([]uint, 0, len(inputs))
+	for _, in := range inputs {
+		if in.ID != nil {
+			if _, ok := existingByID[*in.ID]; ok {
+				keepIDs = append(keepIDs, *in.ID)
+			}
+		}
+	}
+	if err := s.checkDuplicateAccountIDs(inputs, keepIDs); err != nil {
+		return err
+	}
+
+	keep := map[uint]bool{}
+	var toCreate []models.ClientProduct
+
+	for _, in := range inputs {
+		if in.ID != nil {
+			if e, ok := existingByID[*in.ID]; ok {
+				keep[*in.ID] = true
+				e.ProductTypeID = in.ProductTypeID
+				e.AccountID = in.AccountID
+				e.IsActive = in.IsActive
+				e.SortOrder = in.SortOrder
+				if err := s.repo.UpdateProduct(&e); err != nil {
+					return err
+				}
+				continue
+			}
+		}
+		toCreate = append(toCreate, models.ClientProduct{
+			ClientID: clientID, ProductTypeID: in.ProductTypeID, AccountID: in.AccountID,
+			IsActive: in.IsActive, SortOrder: in.SortOrder,
+		})
+	}
+
+	for _, e := range existing {
+		if !keep[e.ID] {
+			if err := s.repo.DeleteProduct(e.ID); err != nil {
+				return err
+			}
+		}
+	}
+	if len(toCreate) > 0 {
+		if err := s.repo.CreateProducts(toCreate); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *clientService) Delete(id uint, scopeIDs []uint) error {
@@ -389,7 +544,11 @@ func buildClientBanks(clientID uint, inputs []clientdto.BankInput) []models.Clie
 // against what's already in the DB — so bulk product creation gets the
 // same friendly error as the single-product AddProduct path, instead of a
 // raw MySQL "Duplicate entry" surfacing straight from the batch insert.
-func (s *clientService) checkDuplicateAccountIDs(inputs []clientdto.ProductInput) error {
+// excludeIDs are existing ClientProduct IDs being kept/updated in this same
+// request — their own DB row is excluded from the "already exists" check,
+// since keeping an unchanged account_id on an existing row isn't actually a
+// collision. Pass nil from Create (nothing pre-exists yet).
+func (s *clientService) checkDuplicateAccountIDs(inputs []clientdto.ProductInput, excludeIDs []uint) error {
 	seen := map[string]bool{}
 	ids := make([]string, 0, len(inputs))
 	for _, p := range inputs {
@@ -399,8 +558,12 @@ func (s *clientService) checkDuplicateAccountIDs(inputs []clientdto.ProductInput
 		seen[p.AccountID] = true
 		ids = append(ids, p.AccountID)
 	}
+	q := s.db.Where("account_id IN ?", ids)
+	if len(excludeIDs) > 0 {
+		q = q.Where("id NOT IN ?", excludeIDs)
+	}
 	var existing models.ClientProduct
-	if err := s.db.Where("account_id IN ?", ids).First(&existing).Error; err == nil {
+	if err := q.First(&existing).Error; err == nil {
 		return errors.New("account ID already exists: " + existing.AccountID)
 	}
 	return nil
