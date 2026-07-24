@@ -75,8 +75,16 @@ func (r *companyBankRepository) List(showAll bool) ([]models.CompanyBank, error)
 	return items, err
 }
 
+// Update saves only the CompanyBank's own columns — explicitly omitting
+// associations (clause.Associations) so GORM never auto-saves/re-syncs a
+// related BankType/CurrencyType/Branch/CreatedBy record, and critically
+// never re-derives a foreign key (e.g. BankTypeID) FROM a populated but
+// possibly-stale association object on the struct. Without this, a
+// non-nil x.BankType with an old ID silently overwrote an explicitly-set
+// x.BankTypeID during Save — the actual cause of "cannot update bank
+// type" reports.
 func (r *companyBankRepository) Update(x *models.CompanyBank) error {
-	return r.db.Save(x).Error
+	return r.db.Omit(clause.Associations).Save(x).Error
 }
 
 // applyCashDelta performs the balance change and ledger write inside a
